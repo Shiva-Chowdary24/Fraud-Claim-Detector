@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import API from "../services/api";
-import CustLayout from "../components/CustLayout"; // Assuming you have a customer layout
+import CustSidebar from "../components/CustSidebar"; // Your sidebar component
+import Navbar from "../components/Navbar"; // Your navbar component
 import { toast } from "react-toastify";
-import { ShieldCheck, Banknote, Clock, Trash2 } from "lucide-react";
+import { ShieldCheck, Banknote, Clock } from "lucide-react";
 
-function IssuedPolicies() {
+function CustIssuedPolicies() {
   const [policies, setPolicies] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch policies on load
   const fetchPolicies = async () => {
     try {
       const res = await API.get("/customer/my-policies");
@@ -24,94 +24,94 @@ function IssuedPolicies() {
     fetchPolicies();
   }, []);
 
-  // Logic to "Collect Money" and remove policy
   const handleCollectMoney = async (policyId) => {
     try {
-      // API call to process payment and archive/delete policy
       await API.post("/customer/collect-payout", { Policy_id: policyId });
-      
-      toast.success("Funds transferred! Policy has been settled and removed.");
-      
-      // Remove from UI immediately
+      toast.success("Funds transferred! Policy has been settled.");
       setPolicies((prev) => prev.filter((p) => p.Policy_id !== policyId));
     } catch (err) {
-      toast.error("Collection failed. Please contact support.");
+      toast.error("Collection failed.");
     }
   };
 
   return (
-    <CustLayout>
-      <div className="max-w-6xl mx-auto p-6">
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold text-[#0a1628]">Issued Policies</h1>
-          <p className="text-gray-500">Manage your active protection plans and collect verified claims.</p>
-        </header>
+    <div className="flex min-h-screen bg-gray-50">
+      {/* Sidebar - Fixed width handled by your component */}
+      <CustSidebar />
 
-        {loading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          </div>
-        ) : policies.length === 0 ? (
-          <div className="bg-white border-2 border-dashed border-gray-200 rounded-2xl p-12 text-center">
-            <ShieldCheck size={48} className="mx-auto text-gray-300 mb-4" />
-            <p className="text-gray-500 text-lg">You don't have any active issued policies yet.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {policies.map((policy) => (
-              <div 
-                key={policy.Policy_id} 
-                className="bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow overflow-hidden"
-              >
-                {/* Policy Header */}
-                <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-4 text-white">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold uppercase tracking-wider opacity-80">Policy ID</span>
-                    <span className="bg-white/20 px-2 py-1 rounded text-[10px] backdrop-blur-md">ACTIVE</span>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col">
+        <Navbar />
+
+        <main className="p-8">
+          <header className="mb-8">
+            <h1 className="text-3xl font-bold text-[#0a1628]">Issued Policies</h1>
+            <p className="text-gray-500 text-sm mt-1">
+              Active protection plans eligible for payout collection.
+            </p>
+          </header>
+
+          {loading ? (
+            <div className="flex justify-center items-center h-64">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+            </div>
+          ) : policies.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-2xl p-16 text-center shadow-sm">
+              <ShieldCheck size={48} className="mx-auto text-gray-300 mb-4" />
+              <p className="text-gray-500 font-medium">No active policies found.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {policies.map((policy) => (
+                <div 
+                  key={policy.Policy_id} 
+                  className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-all"
+                >
+                  {/* Visual Header */}
+                  <div className="bg-[#0a1628] p-4 text-white flex justify-between items-center">
+                    <div>
+                      <p className="text-[10px] uppercase opacity-60 font-bold tracking-widest">Policy ID</p>
+                      <h3 className="font-mono font-bold text-lg">{policy.Policy_id}</h3>
+                    </div>
+                    <div className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-[10px] font-bold border border-green-500/30">
+                      ACTIVE
+                    </div>
                   </div>
-                  <h3 className="text-lg font-bold mt-1">{policy.Policy_id}</h3>
+
+                  {/* Details */}
+                  <div className="p-5 space-y-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Plan:</span>
+                      <span className="font-semibold">{policy.plan_name || "Basic Cover"}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Coverage:</span>
+                      <span className="font-bold text-blue-600">${policy.claim_amount?.toLocaleString()}</span>
+                    </div>
+
+                    <div className="pt-4">
+                      {policy.is_collectible ? (
+                        <button
+                          onClick={() => handleCollectMoney(policy.Policy_id)}
+                          className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 animate-pulse transition-transform active:scale-95"
+                        >
+                          <Banknote size={18} /> Collect Money
+                        </button>
+                      ) : (
+                        <div className="flex items-center justify-center gap-2 text-gray-400 py-3 bg-gray-50 rounded-xl text-xs border border-gray-100 italic">
+                          <Clock size={14} /> Claim in Review or Not Filed
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-
-                {/* Policy Body */}
-                <div className="p-5 space-y-4">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500">Plan Type:</span>
-                    <span className="font-semibold text-gray-800">{policy.plan_name || "General Protection"}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500">Coverage:</span>
-                    <span className="font-semibold text-gray-800">${policy.claim_amount?.toLocaleString() || "0"}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500">Issued On:</span>
-                    <span className="font-semibold text-gray-800">{new Date(policy.issue_date).toLocaleDateString()}</span>
-                  </div>
-
-                  <hr className="border-gray-50" />
-
-                  {/* Action Section */}
-                  <div className="pt-2">
-                    {policy.is_collectible ? (
-                      <button
-                        onClick={() => handleCollectMoney(policy.Policy_id)}
-                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 animate-pulse transition-all"
-                      >
-                        <Banknote size={18} /> Collect Money
-                      </button>
-                    ) : (
-                      <div className="flex items-center justify-center gap-2 text-gray-400 py-3 bg-gray-50 rounded-xl text-sm italic">
-                        <Clock size={16} /> No Claims Pending
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </main>
       </div>
-    </CustLayout>
+    </div>
   );
 }
 
-export default IssuedPolicies;
+export default CustIssuedPolicies;
