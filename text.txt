@@ -3,6 +3,7 @@ from pymongo import MongoClient
 client = MongoClient("mongodb://localhost:27017")
 db = client["Insurancedb"]
 
+# Existing Collections
 dealers = db["Dealer_Data"]
 customers = db["Insurance"]
 fraud_logs = db["Fraud_Logs"]
@@ -11,3 +12,6 @@ policy_requests = db["Policy_Requests"]
 queries = db["Queries"]
 notifications = db["Notifications"]
 audit_logs = db["Audit_Logs"]
+
+# New Collection for Policy Catalog
+policies = db["Policies"]
