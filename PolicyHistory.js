@@ -125,4 +125,21 @@ function CustPolicyHistory() {
                           {new Date(item.updated_at || item.timestamp).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
                         </td>
                         <td className="p-5 text-right">
-                          <button className="p-2 text-blue-500 hover:bg-blue-50 rounded-full transition-all opacity-0 group-hover:opacity-100"
+                          <button className="p-2 text-blue-500 hover:bg-blue-50 rounded-full transition-all opacity-0 group-hover:opacity-100" title="Download Statement">
+                            <Download size={18} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+export default CustPolicyHistory;
