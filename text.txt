@@ -24,3 +24,10 @@ policies = db["Policies"]
   "duration": "12 Months",
   "description": "Comprehensive health coverage including inpatient and outpatient services with zero deductible."
 }
+
+Error: 'list' object can't be awaited
+INFO:     127.0.0.1:59666 - "GET /admin/available-policies HTTP/1.1" 500 Internal Server Error
+Error: 'list' object can't be awaited
+INFO:     127.0.0.1:59666 - "GET /admin/available-policies HTTP/1.1" 500 Internal Server Error
+Error: 'list' object can't be awaited
+INFO:     127.0.0.1:59691 - "GET /admin/available-policies HTTP/1.1" 500 Internal Server Error
