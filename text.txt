@@ -15,3 +15,12 @@ audit_logs = db["Audit_Logs"]
 
 # New Collection for Policy Catalog
 policies = db["Policies"]
+
+{
+  "policy_name": "Premium Health Shield",
+  "policy_type": "Health",
+  "coverage_amount": 50000,
+  "premium": 150,
+  "duration": "12 Months",
+  "description": "Comprehensive health coverage including inpatient and outpatient services with zero deductible."
+}
