@@ -5,7 +5,7 @@ import CustNavbar from "../components/CustNavbar";
 import { AlertCircle, ShieldCheck, DollarSign } from "lucide-react";
 import confetti from "canvas-confetti";
 
-/** Inline DateInput component remains the same */
+/** Inline DateInput with Dark Styling */
 const DateInput = ({ name, value, onChange, placeholder = "mm/dd/yyyy", required = false, className = "", ...rest }) => {
   const handleFocus = (e) => { e.target.type = "date"; };
   const handleBlur = (e) => { if (!e.target.value) e.target.type = "text"; };
@@ -19,7 +19,7 @@ const DateInput = ({ name, value, onChange, placeholder = "mm/dd/yyyy", required
       onBlur={handleBlur}
       placeholder={placeholder}
       required={required}
-      className={`border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none ${className}`}
+      className={`bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-500 ${className}`}
       {...rest}
     />
   );
@@ -87,102 +87,118 @@ function ClaimAmount() {
     }
   };
 
+  const selectClass = "bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none cursor-pointer";
+  const inputClass = "bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-500";
+
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-[#0a1628]"> {/* Dark Background to match Apply Policy */}
       <CustSidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-hidden">
         <CustNavbar />
-        <main className="p-8">
-          <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        
+        <main className="p-8 overflow-y-auto">
+          <div className="max-w-4xl mx-auto">
             
-            {/* Header with Black BG Icon */}
-            <div className="bg-[#0a1628] p-6 text-white flex items-center gap-4">
-              <div className="bg-black p-3 rounded-xl border border-gray-700">
-                <DollarSign className="text-blue-400" size={24} />
+            {/* Dark Mode Card */}
+            <div className="bg-[#111e32] rounded-2xl shadow-2xl border border-slate-800 overflow-hidden">
+              
+              {/* Header with Black BG Icon */}
+              <div className="bg-[#1a2c46] p-6 text-white flex items-center gap-4 border-b border-slate-800">
+                <div className="bg-black p-3 rounded-xl border border-gray-700">
+                  <DollarSign className="text-blue-400" size={24} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">Claim Amount Request</h2>
+                  <p className="text-xs text-slate-400 font-medium">Process your claim with instant AI verification.</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-xl font-bold">Claim Amount Request</h2>
-                <p className="text-xs text-gray-400">Process your claim with instant AI verification.</p>
+
+              {/* Messages section */}
+              <div className="px-8 pt-6">
+                {isFraud === true && (
+                  <div className="p-4 bg-orange-900/20 border border-orange-500/50 rounded-xl text-orange-200 flex items-center gap-3">
+                    <div className="bg-black p-2 rounded-lg shrink-0">
+                        <AlertCircle className="text-orange-500" size={20} />
+                    </div>
+                    <div>
+                        <p className="font-bold text-sm">Suspicious claim request detected.</p>
+                        <p className="text-xs opacity-80">Sent to policy issuer for review. Please wait.</p>
+                    </div>
+                  </div>
+                )}
+
+                {isFraud === false && (
+                  <div className="p-6 text-center animate-pulse bg-emerald-900/20 border border-emerald-500/50 rounded-xl">
+                    <h2 className="text-2xl font-bold text-emerald-400 mb-1">Congratulations! 🎉</h2>
+                    <p className="text-emerald-100 text-sm">Claim verified successfully. Reloading...</p>
+                  </div>
+                )}
+
+                {errorMsg && (
+                  <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-900/20 px-4 py-3 text-red-400">
+                    <div className="bg-black p-2 rounded-lg shrink-0">
+                        <AlertCircle className="text-red-500" size={20} />
+                    </div>
+                    <div className="text-sm font-medium">{errorMsg}</div>
+                  </div>
+                )}
               </div>
+
+              {/* Form - Only visible if not successfully verified */}
+              {isFraud !== false && (
+                <form onSubmit={handleSubmit} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <input type="text" name="Policy_id" placeholder="Policy ID" onChange={handleChange} value={form.Policy_id} className={inputClass} />
+                  <DateInput name="policy_start_date" value={form.policy_start_date} onChange={handleChange} placeholder="Policy Start Date" required />
+                  <DateInput name="incident_date" value={form.incident_date} onChange={handleChange} placeholder="Incident Date" required />
+                  <DateInput name="report_date" value={form.report_date} onChange={handleChange} placeholder="Report Date" required />
+                  
+                  <input type="number" name="annual_premium" placeholder="Annual Premium" required onChange={handleChange} value={form.annual_premium} className={inputClass} />
+                  <input type="number" name="deductible" placeholder="Deductible" required onChange={handleChange} value={form.deductible} className={inputClass} />
+                  <input type="number" name="claim_amount" placeholder="Claim Amount" required onChange={handleChange} value={form.claim_amount} className={inputClass} />
+                  
+                  <select name="payment_method" required onChange={handleChange} value={form.payment_method} className={selectClass}>
+                    <option value="" className="bg-[#111e32]">Payment Method</option>
+                    <option className="bg-[#111e32]">Cash</option>
+                    <option className="bg-[#111e32]">Crypto</option>
+                    <option className="bg-[#111e32]">Bank</option>
+                  </select>
+
+                  <select name="channel" required onChange={handleChange} value={form.channel} className={selectClass}>
+                    <option value="" className="bg-[#111e32]">Channel</option>
+                    <option className="bg-[#111e32]">Agent</option>
+                    <option className="bg-[#111e32]">Online</option>
+                  </select>
+
+                  <select name="police_reported" required onChange={handleChange} value={form.police_reported} className={selectClass}>
+                    <option value="" className="bg-[#111e32]">Police Reported</option>
+                    <option className="bg-[#111e32]">Yes</option>
+                    <option className="bg-[#111e32]">No</option>
+                  </select>
+
+                  <select name="injury_severity" required onChange={handleChange} value={form.injury_severity} className={selectClass}>
+                    <option value="" className="bg-[#111e32]">Injury Severity</option>
+                    <option className="bg-[#111e32]">None</option>
+                    <option className="bg-[#111e32]">Normal</option>
+                    <option className="bg-[#111e32]">Critical</option>
+                    <option className="bg-[#111e32]">Major</option>
+                  </select>
+
+                  <input type="number" name="num_prior_claims" placeholder="Prior Claims" required onChange={handleChange} value={form.num_prior_claims} className={`${inputClass} md:col-span-2`} />
+
+                  <div className="md:col-span-2 flex justify-end pt-4">
+                    <button
+                      type="submit"
+                      disabled={submitting || !canSubmit}
+                      className={`px-12 py-3 rounded-xl text-white font-bold transition-all shadow-lg ${
+                        submitting || !canSubmit ? "bg-slate-700 text-slate-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500 active:scale-95"
+                      }`}
+                    >
+                      {submitting ? "Analyzing..." : "Submit Claim"}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
-
-            {/* Suspicious Message with Black BG Icon */}
-            {isFraud === true && (
-              <div className="m-6 p-4 bg-orange-50 border-l-4 border-orange-500 text-orange-700 flex items-center gap-3">
-                 <div className="bg-black p-2 rounded-lg shrink-0">
-                    <AlertCircle className="text-orange-500" size={20} />
-                 </div>
-                 <div>
-                    <p className="font-bold text-sm">Suspicious claim request detected.</p>
-                    <p className="text-xs">Sent to policy issuer for review. Please wait.</p>
-                 </div>
-              </div>
-            )}
-
-            {/* Success Message */}
-            {isFraud === false && (
-              <div className="m-6 p-6 text-center animate-bounce">
-                <h2 className="text-3xl font-bold text-green-600 mb-2">Congratulations! 🎉</h2>
-                <p className="text-gray-600 font-medium">Claim verified successfully.</p>
-              </div>
-            )}
-
-            {/* Error Message with Black BG Icon */}
-            {errorMsg && (
-              <div className="m-6 flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-50 px-4 py-3 text-red-600">
-                <div className="bg-black p-2 rounded-lg shrink-0">
-                    <AlertCircle className="text-red-500" size={20} />
-                </div>
-                <div className="text-sm font-medium">{errorMsg}</div>
-              </div>
-            )}
-
-            {isFraud !== false && (
-              <form onSubmit={handleSubmit} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Form fields remain the same as before */}
-                <input type="text" name="Policy_id" placeholder="Policy ID" onChange={handleChange} value={form.Policy_id} className="border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                <DateInput name="policy_start_date" value={form.policy_start_date} onChange={handleChange} placeholder="Policy Start Date" required />
-                <DateInput name="incident_date" value={form.incident_date} onChange={handleChange} placeholder="Incident Date" required />
-                <DateInput name="report_date" value={form.report_date} onChange={handleChange} placeholder="Report Date" required />
-                <input type="number" name="annual_premium" placeholder="Annual Premium" required onChange={handleChange} value={form.annual_premium} className="border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                <input type="number" name="deductible" placeholder="Deductible" required onChange={handleChange} value={form.deductible} className="border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                <input type="number" name="claim_amount" placeholder="Claim Amount" required onChange={handleChange} value={form.claim_amount} className="border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                
-                <select name="payment_method" required onChange={handleChange} value={form.payment_method} className="border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                  <option value="">Payment Method</option>
-                  <option>Cash</option><option>Crypto</option><option>Bank</option>
-                </select>
-
-                <select name="channel" required onChange={handleChange} value={form.channel} className="border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                  <option value="">Channel</option>
-                  <option>Agent</option><option>Online</option>
-                </select>
-
-                <select name="police_reported" required onChange={handleChange} value={form.police_reported} className="border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                  <option value="">Police Reported</option>
-                  <option>Yes</option><option>No</option>
-                </select>
-
-                <select name="injury_severity" required onChange={handleChange} value={form.injury_severity} className="border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                  <option value="">Injury Severity</option>
-                  <option>None</option><option>Normal</option><option>Critical</option><option>Major</option>
-                </select>
-
-                <input type="number" name="num_prior_claims" placeholder="Prior Claims" required onChange={handleChange} value={form.num_prior_claims} className="border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none md:col-span-2" />
-
-                <div className="md:col-span-2 flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={submitting || !canSubmit}
-                    className={`px-10 py-3 rounded-xl text-white font-bold transition-all shadow-lg ${
-                      submitting || !canSubmit ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 active:scale-95"
-                    }`}
-                  >
-                    {submitting ? "Submitting..." : "Submit Claim"}
-                  </button>
-                </div>
-              </form>
-            )}
           </div>
         </main>
       </div>
