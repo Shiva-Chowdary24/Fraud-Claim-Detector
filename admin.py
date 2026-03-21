@@ -1,121 +1,108 @@
 from fastapi import APIRouter, HTTPException
-from database import policy_requests, customers, notifications, audit_logs, queries, dealers, fraud_logs
+from database import policy_requests, issued_policies, notifications, audit_logs, queries
 from datetime import datetime
 from bson import ObjectId
-from fastapi import APIRouter, Response, status
+import random
+
 router = APIRouter()
 
 def now():
     return datetime.utcnow().isoformat()
 
-# -------- POLICY --------
+# -------- POLICY APPROVALS --------
 
-@router.get("/policy-requests")
+# 1. Matches API.get("/admin/policy-requests")
+@router.get("/admin/policy-requests")
 def get_requests():
-    return list(policy_requests.find({}, {"_id": 0}))
+    try:
+        # Fetch only 'Pending' requests to keep the Admin list clean
+        results = list(policy_requests.find({"status": "Pending"}))
+        for r in results:
+            r["_id"] = str(r["_id"]) # Convert ObjectId for React
+        return results
+    except Exception as e:
+        raise HTTPException(500, f"Error fetching requests: {str(e)}")
 
+# 2. Matches API.post("/admin/policy-approve/{id}")
 @router.post("/admin/policy-approve/{request_id}")
-def approve_policy(request_id: str):
-    # 1. Find the application request
-    req = policy_requests.find_one({"_id": ObjectId(request_id)})
-    if not req:
-        raise HTTPException(404, "Request not found")
+def approve(request_id: str):
+    try:
+        # Find the specific request by its MongoDB ID
+        req = policy_requests.find_one({"_id": ObjectId(request_id)})
+        if not req:
+            raise HTTPException(404, "Application not found")
 
-    # 2. Generate the Policy ID (e.g., PL-HEA-1234)
-    plan_prefix = req.get("plan_name", "POL")[:3].upper()
-    policy_serial = f"PL-{plan_prefix}-{random.randint(1000, 9999)}"
+        # GENERATE UNIQUE POLICY ID: PL-ABC-1234
+        plan_name = req.get("plan_name", "POL")
+        prefix = plan_name[:3].upper() # First 3 letters
+        random_num = random.randint(1000, 9999)
+        generated_id = f"PL-{prefix}-{random_num}"
 
-    # 3. Create the Issued Policy Record
-    # This links the Policy to the Permanent 6-digit Customer ID
-    issued_data = {
-        "policy_id": policy_serial,       
-        "customer_id": req.get("customer_id"), # The 6-digit ID from signup
-        "email": req.get("email"),
-        "full_name": req.get("full_name"),
-        "plan_name": req.get("plan_name"),
-        "premium_amount": req.get("premium_amount"),
-        "tenure": req.get("tenure"),
-        "status": "Active",
-        "issued_date": datetime.utcnow().isoformat()
-    }
+        # Prepare the data for 'issued_policies' collection
+        # We remove the old MongoDB _id and add the new human-readable ID
+        issued_data = {
+            **req,
+            "policy_id": generated_id,
+            "status": "Active",
+            "approved_at": now()
+        }
+        issued_data.pop("_id", None) # Remove the request ID
 
-    # 4. Move data between collections
-    issued_policies.insert_one(issued_data)
-    policy_requests.delete_one({"_id": ObjectId(request_id)})
+        # Save to issued_policies and remove from pending requests
+        issued_policies.insert_one(issued_data)
+        policy_requests.delete_one({"_id": ObjectId(request_id)})
 
-    return {"message": "Policy Approved", "policy_id": policy_serial}
+        # Notify the user
+        notifications.insert_one({
+            "user": req.get("email"),
+            "message": f"Your application for {plan_name} has been approved! ID: {generated_id}",
+            "read": False,
+            "timestamp": now()
+        })
 
-@router.post("/decline/{policy}")
-def decline(policy: str):
-    policy_requests.update_one(
-        {"Policy": policy},
-        {"$set": {"status": "Declined"}}
-    )
+        # Log the action
+        audit_logs.insert_one({
+            "action": "Approved",
+            "details": f"Policy {generated_id} issued to {req.get('email')}",
+            "timestamp": now()
+        })
 
-    notifications.insert_one({
-        "message": f"Policy {policy} declined",
+        return {"message": "Approved", "policy_id": generated_id}
+         notifications.insert_one({
+        "recipient_id": customer_id, # Targeted to this user
+        "message": "Your policy application has been APPROVED! View your certificate now.",
+        "type": "policy_update",
+        "link": "/customer/policy-history",
         "read": False,
-        "timestamp": now()
+        "timestamp": datetime.utcnow().isoformat()
     })
+    return {"message": "Approved and Customer Notified"}
+    except Exception as e:
+        print(f"Approval Error: {e}")
+        raise HTTPException(500, "Internal Server Error during approval")
 
-    return {"message": "Declined"}
+# 3. Matches API.post("/admin/policy-decline/{id}")
+@router.post("/admin/policy-decline/{request_id}")
+def decline(request_id: str):
+    try:
+        # Mark as declined and keep in history, or just delete
+        policy_requests.update_one(
+            {"_id": ObjectId(request_id)},
+            {"$set": {"status": "Declined", "declined_at": now()}}
+        )
+        return {"message": "Declined"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
-# -------- DEALERS --------
+# -------- QUERIES & AUDIT --------
 
-@router.post("/admin/dealer/add")
-def add_dealer(data: dict):
-    if not data.get("Policy"):
-        raise HTTPException(400, "Policy required")
-
-    dealers.insert_one(data)
-    return {"message": "Added"}
-
-
-@router.delete("/admin/dealer/delete/{policy}")
-def delete_dealer(policy: str):
-    res = dealers.delete_one({"Policy": policy})
-    if res.deleted_count == 0:
-        # Strict semantics: report not found
-        raise HTTPException(status_code=404, detail="Not found")
-    return {"message": "Deleted"}
-
-
-@router.get("/admin/dealer/logs")
-def logs():
-    return list(fraud_logs.find({}, {"_id": 0}))
-
-# -------- QUERIES --------
-
-@router.get("/queries")
+@router.get("/admin/queries")
 def get_queries():
-    return list(queries.find())
+    results = list(queries.find())
+    for r in results:
+        r["_id"] = str(r["_id"])
+    return results
 
-@router.post("/reply/{id}")
-def reply(id: str, data: dict):
-    queries.update_one(
-        {"_id": ObjectId(id)},
-        {"$set": {"reply": data["reply"], "status": "Answered"}}
-    )
-
-    q = queries.find_one({"_id": ObjectId(id)})
-
-    notifications.insert_one({
-        "user": q.get("email"),
-        "message": "Query answered",
-        "read": False,
-        "timestamp": now()
-    })
-
-    audit_logs.insert_one({
-        "action": "Reply",
-        "details": q.get("email"),
-        "timestamp": now()
-    })
-
-    return {"message": "Replied"}
-
-# -------- AUDIT --------
-
-@router.get("/audit-logs")
+@router.get("/admin/audit-logs")
 def audit():
     return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
