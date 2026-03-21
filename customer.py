@@ -76,36 +76,34 @@ def get_issued_policies(email: str):
 @router.get("/customer/full-history")
 def get_full_history(customer_id: str = Query(...)):
     try:
-        # 1. Fetch data from the 'Requests' folder (Pending/Declined)
-        # We filter by the 6-digit customer_id
-        pending_data = list(policy_requests.find({"customer_id": customer_id}))
-        
-        # 2. Fetch data from the 'Issued' folder (Approved/Active)
-        active_data = list(issued_policies.find({"customer_id": customer_id}))
-        
-        # 3. Combine both lists into one big "History"
-        full_history = []
+        # Search for both String and Integer versions of the ID to be safe
+        search_query = {
+            "$or": [
+                {"customer_id": customer_id},          # "123456"
+                {"customer_id": int(customer_id) if customer_id.isdigit() else None} # 123456
+            ]
+        }
 
-        # Process Pending/Declined items
+        # 1. Fetch from 'policy_requests'
+        pending_data = list(policy_requests.find(search_query))
+        
+        # 2. Fetch from 'issued_policies'
+        active_data = list(issued_policies.find(search_query))
+        
+        # Combine
+        combined = []
         for item in pending_data:
-            item["_id"] = str(item["_id"]) # Convert MongoDB ID to string
-            full_history.append(item)
-
-        # Process Active items
+            item["_id"] = str(item["_id"])
+            combined.append(item)
+            
         for item in active_data:
             item["_id"] = str(item["_id"])
-            # Ensure status is 'Active' for display logic
-            item["status"] = "Active" 
-            full_history.append(item)
+            item["status"] = "Active"
+            combined.append(item)
 
-        # 4. Sort by date so the newest application is at the top
-        # It checks for 'submitted_at' first, then 'issued_date'
-        full_history.sort(
-            key=lambda x: x.get("submitted_at") or x.get("issued_date") or "", 
-            reverse=True
-        )
-
-        return full_history
+        return combined
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     except Exception as e:
         print(f"Error fetching history: {e}")
