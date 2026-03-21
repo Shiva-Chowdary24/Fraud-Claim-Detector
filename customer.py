@@ -73,3 +73,40 @@ def get_issued_policies(email: str):
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to fetch issued policies")
+@router.get("/customer/full-history")
+def get_full_history(customer_id: str = Query(...)):
+    try:
+        # 1. Fetch data from the 'Requests' folder (Pending/Declined)
+        # We filter by the 6-digit customer_id
+        pending_data = list(policy_requests.find({"customer_id": customer_id}))
+        
+        # 2. Fetch data from the 'Issued' folder (Approved/Active)
+        active_data = list(issued_policies.find({"customer_id": customer_id}))
+        
+        # 3. Combine both lists into one big "History"
+        full_history = []
+
+        # Process Pending/Declined items
+        for item in pending_data:
+            item["_id"] = str(item["_id"]) # Convert MongoDB ID to string
+            full_history.append(item)
+
+        # Process Active items
+        for item in active_data:
+            item["_id"] = str(item["_id"])
+            # Ensure status is 'Active' for display logic
+            item["status"] = "Active" 
+            full_history.append(item)
+
+        # 4. Sort by date so the newest application is at the top
+        # It checks for 'submitted_at' first, then 'issued_date'
+        full_history.sort(
+            key=lambda x: x.get("submitted_at") or x.get("issued_date") or "", 
+            reverse=True
+        )
+
+        return full_history
+
+    except Exception as e:
+        print(f"Error fetching history: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
