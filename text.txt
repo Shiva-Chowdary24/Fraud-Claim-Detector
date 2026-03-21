@@ -1,36 +1,24 @@
-@router.post("/customer/submit-application")
-def submit_application(data: dict):
+@router.get("/customer/full-history")
+def get_full_history(customer_id: str = Query(...)):
     try:
-        # 1. Validation (Enforce customer_id)
-        required_fields = ["full_name", "policy_id", "customer_id"]
-        for field in required_fields:
-            if not data.get(field):
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Required field '{field}' is missing."
-                )
-
-        # 2. Add Request Metadata
-        # We generate a unique Request ID for the pending state
-        data["request_id"] = f"REQ-{str(uuid4())[:6].upper()}"
-        data["status"] = "Pending"
-        data["submitted_at"] = datetime.utcnow().isoformat()
+        # Search for String or Integer versions for safety
+        query = {"customer_id": customer_id}
         
-        # 3. Ensure customer_id is a string (prevents type mismatch in search)
-        data["customer_id"] = str(data["customer_id"])
-
-        # 4. Insert into policy_requests collection
-        # MongoDB adds the _id automatically
-        policy_requests.insert_one(data) 
+        pending = list(policy_requests.find(query))
+        active = list(issued_policies.find(query))
         
-        return {
-            "message": "Application submitted for Admin approval", 
-            "request_id": data["request_id"],
-            "customer_id": data["customer_id"]
-        }
+        combined = []
+        for item in pending:
+            item["_id"] = str(item["_id"])
+            combined.append(item)
+            
+        for item in active:
+            item["_id"] = str(item["_id"])
+            item["status"] = "Active"
+            combined.append(item)
 
-    except HTTPException as he:
-        raise he
+        # Sort by most recent
+        combined.sort(key=lambda x: x.get("submitted_at") or x.get("issued_date") or "", reverse=True)
+        return combined
     except Exception as e:
-        print(f"Submission Error: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error during submission")
+        raise HTTPException(status_code=500, detail="History fetch failed")
