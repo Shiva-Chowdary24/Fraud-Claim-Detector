@@ -63,3 +63,13 @@ def get_notifications(email: str):
     for r in result:
         r["_id"] = str(r["_id"])
     return result
+@router.get("/issued-policies")
+def get_issued_policies(email: str):
+    try:
+        # Fetch from the collection where Admin moved the data
+        results = list(issued_policies.find({"email": email}))
+        for r in results:
+            r["_id"] = str(r["_id"])
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to fetch issued policies")
