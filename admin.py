@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from database import policy_requests, issued_policies, notifications, audit_logs, queries
 from datetime import datetime
 from bson import ObjectId
@@ -9,60 +9,54 @@ router = APIRouter()
 def now():
     return datetime.utcnow().isoformat()
 
+# ✅ HELPER: Security Gatekeeper
+def verify_admin(role: str):
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Unauthorized: Admin access required.")
+
 # -------- POLICY APPROVALS --------
 
-# 1. Fetch Pending Requests
 @router.get("/admin/policy-requests")
-def get_requests():
+def get_requests(role: str = Header(None)): # 👈 Role checked here
+    verify_admin(role)
     try:
-        # Fetch only 'Pending' requests to keep the Admin list clean
         results = list(policy_requests.find({"status": "Pending"}))
         for r in results:
             r["_id"] = str(r["_id"]) 
         return results
     except Exception as e:
-        raise HTTPException(500, f"Error fetching requests: {str(e)}")
+        raise HTTPException(500, f"Error: {str(e)}")
 
-# 2. Approve Policy (With Notifications & Redirect Links)
 @router.post("/admin/policy-approve/{request_id}")
-def approve(request_id: str):
+def approve(request_id: str, role: str = Header(None)):
+    verify_admin(role)
     try:
-        # Find the specific request
         req = policy_requests.find_one({"_id": ObjectId(request_id)})
         if not req:
             raise HTTPException(404, "Application not found")
 
-        # Generate Unique Policy ID
         plan_name = req.get("plan_name", "POL")
         prefix = plan_name[:3].upper()
-        random_num = random.randint(1000, 9999)
-        generated_id = f"PL-{prefix}-{random_num}"
+        generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
         customer_id = req.get("customer_id")
 
-        # Prepare issued data
-        issued_data = {
-            **req,
-            "policy_id": generated_id,
-            "status": "Active",
-            "approved_at": now()
-        }
+        issued_data = {**req, "policy_id": generated_id, "status": "Active", "approved_at": now()}
         issued_data.pop("_id", None) 
 
-        # Database Operations
         issued_policies.insert_one(issued_data)
         policy_requests.delete_one({"_id": ObjectId(request_id)})
 
-        # ✅ NOTIFY CUSTOMER (With Action Link)
+        # Notify Customer
         notifications.insert_one({
             "recipient_id": customer_id,
-            "message": f"Your {plan_name} policy was APPROVED! Policy ID: {generated_id}",
+            "message": f"Your {plan_name} policy was APPROVED! ID: {generated_id}",
             "type": "policy_update",
-            "link": "/customer/policy-history", # Redirects customer to history
+            "link": "/customer/policy-history",
             "read": False,
             "timestamp": now()
         })
 
-        # Log the action
+        # Log Action
         audit_logs.insert_one({
             "action": "Approved",
             "details": f"Policy {generated_id} issued to {req.get('email')}",
@@ -70,58 +64,39 @@ def approve(request_id: str):
         })
 
         return {"message": "Approved", "policy_id": generated_id}
-
     except Exception as e:
-        print(f"Approval Error: {e}")
-        raise HTTPException(500, "Internal Server Error during approval")
+        raise HTTPException(500, "Internal Error")
 
-# 3. Decline Policy
 @router.post("/admin/policy-decline/{request_id}")
-def decline(request_id: str):
+def decline(request_id: str, role: str = Header(None)):
+    verify_admin(role)
     try:
-        req = policy_requests.find_one({"_id": ObjectId(request_id)})
-        if not req:
-            raise HTTPException(404, "Application not found")
-
-        # Update status
         policy_requests.update_one(
             {"_id": ObjectId(request_id)},
             {"$set": {"status": "Declined", "declined_at": now()}}
         )
-
-        # ✅ NOTIFY CUSTOMER of Decline
-        notifications.insert_one({
-            "recipient_id": req.get("customer_id"),
-            "message": f"Unfortunately, your application for {req.get('plan_name')} was declined.",
-            "type": "policy_update",
-            "link": "/customer/policy-history",
-            "read": False,
-            "timestamp": now()
-        })
-
         return {"message": "Declined"}
     except Exception as e:
         raise HTTPException(500, str(e))
 
-# -------- QUERIES & AUDIT --------
+# -------- QUERIES, AUDIT & NOTIFICATIONS --------
 
 @router.get("/admin/queries")
-def get_queries():
+def get_queries(role: str = Header(None)):
+    verify_admin(role)
     results = list(queries.find())
     for r in results:
         r["_id"] = str(r["_id"])
     return results
 
 @router.get("/admin/audit-logs")
-def audit():
-    # Sort logs by most recent first
+def audit(role: str = Header(None)):
+    verify_admin(role)
     return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
 
-# -------- GLOBAL NOTIFICATIONS FETCH --------
-
 @router.get("/admin/notifications")
-def get_admin_notifications():
-    # Fetch notifications meant for the Admin role
+def get_admin_notifications(role: str = Header(None)):
+    verify_admin(role)
     notifs = list(notifications.find({"recipient_id": "ADMIN"}).sort("timestamp", -1))
     for n in notifs:
         n["_id"] = str(n["_id"])
