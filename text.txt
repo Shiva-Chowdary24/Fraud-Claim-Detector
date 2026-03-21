@@ -12,3 +12,21 @@ def approve_policy(request_id: str, customer_id: str):
         "timestamp": datetime.utcnow().isoformat()
     })
     return {"message": "Approved and Customer Notified"}
+
+
+
+
+@router.post("/customer/submit-application")
+def submit_application(data: dict):
+    # ... your existing submission logic ...
+    
+    # ✅ Create Notification for Admin
+    notifications.insert_one({
+        "recipient_id": "ADMIN", # Global tag for all admins
+        "message": f"New Policy Request from {data.get('full_name')} (ID: {data.get('customer_id')})",
+        "type": "new_request",
+        "link": "/admin/policy-requests",
+        "read": False,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+    return {"message": "Submitted and Admin Notified"}
