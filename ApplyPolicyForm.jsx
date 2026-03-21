@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import API from "../services/api";
 import CustSidebar from "../components/CustSidebar";
 import CustNavbar from "../components/CustNavbar";
-import { Send, User, Wallet, Briefcase, Activity, ShieldCheck, ArrowLeft, Calendar } from "lucide-react";
+import { Send, Wallet, Briefcase, Activity, ShieldCheck, ArrowLeft, Calendar, Hash, UserCircle } from "lucide-react";
 import { toast } from "react-toastify";
 
 function ApplyPolicyForm() {
@@ -11,11 +11,12 @@ function ApplyPolicyForm() {
   const navigate = useNavigate();
   const policy = location.state?.policy;
 
-  // Retrieve logged-in user email
-  const userEmail = localStorage.getItem("email") || "user@example.com"; 
+  // ✅ 1. AUTOMATIC DATA RETRIEVAL (No manual typing)
+  const userEmail = localStorage.getItem("email") || "user@example.com";
+  const customerId = localStorage.getItem("customer_id") || "000000";
+  const verifiedName = localStorage.getItem("full_name") || "Customer";
 
   const [formData, setFormData] = useState({
-    full_name: "",
     age: "",
     annual_income: "",
     occupation: "",
@@ -27,7 +28,6 @@ function ApplyPolicyForm() {
 
   const [submitting, setSubmitting] = useState(false);
 
-  // Redirect if no policy data was passed
   if (!policy) {
     setTimeout(() => navigate("/customer/apply-policy"), 0);
     return null;
@@ -42,10 +42,12 @@ function ApplyPolicyForm() {
     setSubmitting(true);
 
     try {
-      // Construct the full request payload
+      // ✅ 2. INJECT AUTOMATIC FIELDS INTO PAYLOAD
       const payload = {
         ...formData,
-        email: userEmail, // Critical for "My Requests" filter
+        customer_id: customerId, // 6-digit ID attached automatically
+        full_name: verifiedName, // Name attached automatically
+        email: userEmail,
         policy_id: policy.id,
         plan_name: policy.plan_name,
         premium_amount: Number(policy.premium_amount),
@@ -53,18 +55,15 @@ function ApplyPolicyForm() {
         description: policy.description
       };
 
-      // Call the new corrected backend route
       await API.post("/customer/submit-application", payload);
       
-      toast.success("Application submitted! Redirecting...");
+      toast.success("Application submitted successfully!");
       
-      // Transition back to catalog
       setTimeout(() => {
-        navigate("/customer/apply-policy");
-      }, 2000);
+        navigate("/customer/policy-history"); // Navigate to history to see "Pending"
+      }, 1500);
 
     } catch (err) {
-      console.error("Submission error:", err);
       toast.error(err.response?.data?.detail || "Failed to submit request");
     } finally {
       setSubmitting(false);
@@ -80,13 +79,12 @@ function ApplyPolicyForm() {
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         <CustNavbar />
         
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-8 text-left">
           <div className="max-w-4xl mx-auto">
             
-            {/* Header / Back Link */}
             <div className="flex items-center justify-between mb-8">
               <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors group">
-                <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
+                <ArrowLeft size={18} />
                 <span className="text-sm font-medium">Back to Catalog</span>
               </button>
               <div className="flex items-center gap-2 px-4 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-full">
@@ -101,18 +99,20 @@ function ApplyPolicyForm() {
               <div className="bg-[#1a2c46] p-8 border-b border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                   <h2 className="text-2xl font-bold text-white tracking-tight">{policy.plan_name}</h2>
-                  <p className="text-slate-400 text-sm mt-1 flex items-center gap-2">
-                    Application for <span className="text-white underline decoration-blue-500">{userEmail}</span>
-                  </p>
+                  <div className="flex items-center gap-4 mt-2">
+                     {/* ✅ Show verified details in header */}
+                     <div className="flex items-center gap-1.5 text-xs text-blue-400 font-mono">
+                        <Hash size={12} /> {customerId}
+                     </div>
+                     <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+                        <UserCircle size={12} /> {verifiedName}
+                     </div>
+                  </div>
                 </div>
                 <div className="flex gap-6">
                   <div className="text-right">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase">Premium</p>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Premium</p>
                     <p className="text-xl font-black text-emerald-400">${policy.premium_amount}<span className="text-xs text-slate-500 font-normal">/yr</span></p>
-                  </div>
-                  <div className="text-right border-l border-slate-700 pl-6">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase">Tenure</p>
-                    <p className="text-xl font-black text-white">{policy.tenure}<span className="text-xs text-slate-500 font-normal"> Yrs</span></p>
                   </div>
                 </div>
               </div>
@@ -121,10 +121,6 @@ function ApplyPolicyForm() {
                 
                 {/* Applicant Data */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-1 md:col-span-2 lg:col-span-1">
-                    <label className={labelStyle}><User size={12} /> Full Legal Name</label>
-                    <input name="full_name" placeholder="As per ID Proof" onChange={handleChange} required className={inputStyle} />
-                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <label className={labelStyle}><Calendar size={12} /> Age</label>
@@ -145,7 +141,7 @@ function ApplyPolicyForm() {
                       <option>Freelancer / Consultant</option>
                     </select>
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 md:col-span-2">
                     <label className={labelStyle}>Identity Proof (ID/Passport No.)</label>
                     <input name="identity_number" placeholder="Enter ID Number" onChange={handleChange} required className={inputStyle} />
                   </div>
@@ -168,7 +164,7 @@ function ApplyPolicyForm() {
                   <label className={labelStyle}><Activity size={12} /> Medical / Risk Disclosure</label>
                   <textarea 
                     name="medical_history" 
-                    placeholder="Provide details of any existing medical conditions or hazardous hobbies. Enter 'None' if not applicable." 
+                    placeholder="Provide details of any existing medical conditions. Enter 'None' if not applicable." 
                     rows="4" 
                     onChange={handleChange} 
                     required 
@@ -176,10 +172,9 @@ function ApplyPolicyForm() {
                   ></textarea>
                 </div>
 
-                {/* Footer / Submit */}
                 <div className="flex flex-col md:flex-row items-center justify-between gap-6 pt-6 border-t border-slate-800/50">
                   <p className="text-[11px] text-slate-500 leading-tight max-w-sm">
-                    By submitting this application, you confirm that the information provided is accurate and you agree to our terms of service for policy underwriting.
+                    This application is linked to Customer ID <span className="text-blue-400 font-bold">#{customerId}</span>. By sending this, you verify all data is legally accurate.
                   </p>
                   <button 
                     type="submit" 
