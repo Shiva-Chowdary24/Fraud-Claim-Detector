@@ -1,82 +1,65 @@
 from fastapi import APIRouter, HTTPException
-from database import policy_requests, customers, queries, notifications
+from database import policy_requests, issued_policies, queries, notifications
 from datetime import datetime
 from bson import ObjectId
 from uuid import uuid4
+from typing import List
 
 router = APIRouter()
 
 def now():
     return datetime.utcnow().isoformat()
 
-@router.post("/apply-policy")
-def apply_policy(data: dict):
-    if not data.get("Policy") or not data.get("email"):
-        raise HTTPException(400, "Missing fields")
-
-    data["status"] = "Pending"
-    data["timestamp"] = now()
-
-    policy_requests.insert_one(data)
-
-    return {"message": "Request sent"}
-
 # --- CUSTOMER: Submit Policy Application ---
 @router.post("/customer/submit-application")
-async def submit_application(data: dict):
+def submit_application(data: dict):
     try:
-        # 1. Add a unique Request ID (for tracking before approval)
-        data["request_id"] = str(uuid4())[:8].upper()
-        data["status"] = "Pending"
-        data["submitted_at"] = datetime.utcnow().isoformat()
+        # 1. Validation
+        if not data.get("full_name") or not data.get("policy_id"):
+            raise HTTPException(status_code=400, detail="Required fields are missing.")
 
-        # 2. Insert into a NEW collection called 'policy_requests'
-        # Ensure 'policy_requests' is defined in your database.py
-        result = await db.policy_requests.insert_one(data) 
+        # 2. Add Request Metadata
+        data["request_id"] = f"REQ-{str(uuid4())[:6].upper()}"
+        data["status"] = "Pending"
+        data["submitted_at"] = now()
         
-        return {"message": "Application submitted", "request_id": data["request_id"]}
+        # 3. Insert into policy_requests collection (Waiting for Admin)
+        policy_requests.insert_one(data) 
+        
+        return {"message": "Application submitted for Admin approval", "request_id": data["request_id"]}
     except Exception as e:
         print(f"Submission Error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save application")
+        raise HTTPException(status_code=500, detail=str(e))
 
+# --- CUSTOMER: View My Applications Status ---
 @router.get("/my-requests")
 def my_requests(email: str):
-    return list(policy_requests.find({"email": email}, {"_id": 0}))
+    # Fetching pending/rejected requests
+    results = list(policy_requests.find({"email": email}))
+    for r in results:
+        r["_id"] = str(r["_id"])
+    return results
 
+# --- CUSTOMER: View My Approved (Issued) Policies ---
 @router.get("/issued-policies")
-def issued(email: str):
-    return list(customers.find({"email": email}, {"_id": 0}))
+def get_issued_policies(email: str):
+    # Fetching policies that were already approved by Admin
+    results = list(issued_policies.find({"email": email}))
+    for r in results:
+        r["_id"] = str(r["_id"])
+    return results
 
+# --- HELP & NOTIFICATIONS ---
 @router.post("/query")
 def ask_query(data: dict):
-    if not data.get("email") or not data.get("query"):
-        raise HTTPException(400, "Missing fields")
-
     data["status"] = "Pending"
     data["timestamp"] = now()
-
     queries.insert_one(data)
-
     return {"message": "Query sent"}
-
-@router.get("/my-queries")
-def my_queries(email: str):
-    return list(queries.find({"email": email}, {"_id": 0}))
 
 @router.get("/notifications")
 def get_notifications(email: str):
     result = list(notifications.find({"user": email}).sort("timestamp", -1))
-
     for r in result:
         r["_id"] = str(r["_id"])
-
     return result
-
-@router.post("/notification-read/{id}")
-def mark_read(id: str):
-    notifications.update_one(
-        {"_id": ObjectId(id)},
-        {"$set": {"read": True}}
-    )
-
-    return {"message": "Read"}
