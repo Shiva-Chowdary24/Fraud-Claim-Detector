@@ -26,35 +26,22 @@ def health():
 
 # --- GLOBAL NOTIFICATION ROUTES ---
 
-# 1. Erase a single notification by ID
 @app.delete("/{role}/notifications/erase/{notif_id}")
 def erase_notification(role: str, notif_id: str):
     try:
-        # Check if the ID is a valid MongoDB ObjectId
-        if not ObjectId.is_valid(notif_id):
-            raise HTTPException(status_code=400, detail="Invalid Notification ID format")
-
         result = notifications.delete_one({"_id": ObjectId(notif_id)})
-        
         if result.deleted_count == 0:
-            raise HTTPException(status_code=404, detail="Notification already erased or not found")
-            
+            raise HTTPException(status_code=404, detail="Notification not found")
         return {"message": "Notification erased"}
     except Exception as e:
-        print(f"Delete Error: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# 2. Clear all notifications for a specific user or the Admin
+# 2. Clear all notifications (Triggered by the "Clear All" button)
 @app.delete("/{role}/notifications/clear-all")
 def clear_all_notifications(role: str, recipient_id: str):
     try:
-        # This wipes every notification matching the ID (e.g., "ADMIN" or "123456")
+        # Deletes all records for the specific user (e.g., "123456") or "ADMIN"
         result = notifications.delete_many({"recipient_id": recipient_id})
-        
-        return {
-            "message": f"Cleared {result.deleted_count} notifications",
-            "count": result.deleted_count
-        }
+        return {"message": "Cleared", "count": result.deleted_count}
     except Exception as e:
-        print(f"Clear All Error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to clear inbox")
+        raise HTTPException(status_code=500, detail="Failed to clear notifications")
