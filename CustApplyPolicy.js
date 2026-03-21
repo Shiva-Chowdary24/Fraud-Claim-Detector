@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom"; // Added for navigation
 import API from "../services/api";
 import CustSidebar from "../components/CustSidebar";
 import CustNavbar from "../components/CustNavbar";
@@ -9,6 +10,8 @@ function CustApplyPolicy() {
   const [policies, setPolicies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPolicy, setSelectedPolicy] = useState(null);
+  
+  const navigate = useNavigate(); // Initialize the navigate hook
 
   const fetchPolicies = async () => {
     try {
@@ -30,6 +33,7 @@ function CustApplyPolicy() {
       <CustSidebar />
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         <CustNavbar />
+        
         <main className="flex-1 overflow-y-auto p-8">
           <div className="max-w-6xl mx-auto">
             <header className="mb-12 text-center md:text-left">
@@ -70,7 +74,6 @@ function CustApplyPolicy() {
       {/* --- MEDIUM DIALOG / MODAL BOX --- */}
       {selectedPolicy && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-6">
-          {/* Changed max-w-2xl to max-w-lg for a "Medium" feel */}
           <div className="bg-[#0f172a] border border-slate-800 w-full max-w-lg rounded-[2rem] p-8 relative shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             
             {/* CROSS MARK */}
@@ -116,7 +119,9 @@ function CustApplyPolicy() {
               </div>
             </div>
 
+            {/* REDIRECT TO FORM BUTTON */}
             <button 
+              onClick={() => navigate("/customer/apply-form", { state: { policy: selectedPolicy } })}
               className="w-full bg-blue-600 mt-8 py-4 rounded-xl text-white font-bold text-base hover:bg-blue-500 transition-all shadow-lg active:scale-[0.98]"
             >
               Apply Now
