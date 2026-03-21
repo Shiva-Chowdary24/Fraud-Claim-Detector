@@ -1,51 +1,16 @@
-@router.post("/admin/approve-policy/{request_id}")
-def approve_policy(request_id: str, customer_id: str):
-    # ... your existing approval logic (moving from requests to issued) ...
-    
-    # ✅ Create Notification for Customer
-    notifications.insert_one({
-        "recipient_id": customer_id, # Targeted to this user
-        "message": "Your policy application has been APPROVED! View your certificate now.",
-        "type": "policy_update",
-        "link": "/customer/policy-history",
-        "read": False,
-        "timestamp": datetime.utcnow().isoformat()
-    })
-    return {"message": "Approved and Customer Notified"}
+@router.get("/customer/issued-policies")
+def get_issued(customer_id: str, role: str = Header(None)):
+    # 1. Security Check
+    if role != "customer":
+        raise HTTPException(status_code=403, detail="Unauthorized")
 
-
-
-
-@router.post("/customer/submit-application")
-def submit_application(data: dict):
-    # ... your existing submission logic ...
-    
-    # ✅ Create Notification for Admin
-    notifications.insert_one({
-        "recipient_id": "ADMIN", # Global tag for all admins
-        "message": f"New Policy Request from {data.get('full_name')} (ID: {data.get('customer_id')})",
-        "type": "new_request",
-        "link": "/admin/policy-requests",
-        "read": False,
-        "timestamp": datetime.utcnow().isoformat()
-    })
-    return {"message": "Submitted and Admin Notified"}
-
-
-
-
-
-
-
-from bson import ObjectId
-
-# For both Customer and Admin
-@app.put("/{role}/notifications/read/{notif_id}")
-def mark_notification_read(role: str, notif_id: str):
-    result = notifications.update_one(
-        {"_id": ObjectId(notif_id)},
-        {"$set": {"read": True}}
-    )
-    if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="Notification not found")
-    return {"message": "Marked as read"}
+    try:
+        # 2. Search by customer_id (ensure this matches your DB field name)
+        results = list(issued_policies.find({"customer_id": str(customer_id)}))
+        
+        for r in results:
+            r["_id"] = str(r["_id"])
+            
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Database fetch failed")
