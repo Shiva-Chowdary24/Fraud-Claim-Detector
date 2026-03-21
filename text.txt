@@ -1,19 +1,9 @@
-@router.post("/customer/submit-application")
-def submit_application(data: dict):
-    try:
-        # Check if IDs were sent automatically from Frontend
-        if not data.get("customer_id") or not data.get("full_name"):
-            raise HTTPException(status_code=400, detail="Session Error: Missing Customer Identity.")
-
-        # Add Metadata
-        data["request_id"] = f"REQ-{str(uuid4())[:6].upper()}"
-        data["status"] = "Pending"
-        data["submitted_at"] = datetime.utcnow().isoformat()
-        
-        # Ensure ID is stored as string for consistent searching
-        data["customer_id"] = str(data["customer_id"])
-
-        policy_requests.insert_one(data)
-        return {"message": "Application submitted successfully", "request_id": data["request_id"]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@router.post("/admin/send-notification")
+def send_notification(customer_id: str, message: str):
+    notifications.insert_one({
+        "customer_id": customer_id,
+        "message": message,
+        "read": False,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+    return {"message": "Notification sent"}
