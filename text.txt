@@ -31,3 +31,29 @@ Error: 'list' object can't be awaited
 INFO:     127.0.0.1:59666 - "GET /admin/available-policies HTTP/1.1" 500 Internal Server Error
 Error: 'list' object can't be awaited
 INFO:     127.0.0.1:59691 - "GET /admin/available-policies HTTP/1.1" 500 Internal Server Error
+
+
+
+
+
+
+from datetime import datetime
+from uuid import uuid4
+
+# --- CUSTOMER: Submit Policy Application ---
+@router.post("/customer/submit-application")
+async def submit_application(data: dict):
+    try:
+        # 1. Add a unique Request ID (for tracking before approval)
+        data["request_id"] = str(uuid4())[:8].upper()
+        data["status"] = "Pending"
+        data["submitted_at"] = datetime.utcnow().isoformat()
+
+        # 2. Insert into a NEW collection called 'policy_requests'
+        # Ensure 'policy_requests' is defined in your database.py
+        result = await db.policy_requests.insert_one(data) 
+        
+        return {"message": "Application submitted", "request_id": data["request_id"]}
+    except Exception as e:
+        print(f"Submission Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save application")
