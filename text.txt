@@ -1,19 +1,36 @@
 @router.post("/customer/submit-application")
 def submit_application(data: dict):
     try:
-        # 1. Validation
-        if not data.get("full_name") or not data.get("policy_id"):
-            raise HTTPException(status_code=400, detail="Required fields are missing.")
+        # 1. Validation (Enforce customer_id)
+        required_fields = ["full_name", "policy_id", "customer_id"]
+        for field in required_fields:
+            if not data.get(field):
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Required field '{field}' is missing."
+                )
 
         # 2. Add Request Metadata
+        # We generate a unique Request ID for the pending state
         data["request_id"] = f"REQ-{str(uuid4())[:6].upper()}"
         data["status"] = "Pending"
-        data["submitted_at"] = now()
+        data["submitted_at"] = datetime.utcnow().isoformat()
         
-        # 3. Insert into policy_requests collection (Waiting for Admin)
+        # 3. Ensure customer_id is a string (prevents type mismatch in search)
+        data["customer_id"] = str(data["customer_id"])
+
+        # 4. Insert into policy_requests collection
+        # MongoDB adds the _id automatically
         policy_requests.insert_one(data) 
         
-        return {"message": "Application submitted for Admin approval", "request_id": data["request_id"]}
+        return {
+            "message": "Application submitted for Admin approval", 
+            "request_id": data["request_id"],
+            "customer_id": data["customer_id"]
+        }
+
+    except HTTPException as he:
+        raise he
     except Exception as e:
         print(f"Submission Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal Server Error during submission")
