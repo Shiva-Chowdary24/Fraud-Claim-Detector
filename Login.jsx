@@ -1,4 +1,4 @@
-// src/components/Login.jsx
+// src/pages/Login.jsx
 import React, { useContext, useState } from "react";
 import { AppContext } from "../context/AppContext";
 import { motion } from "framer-motion";
@@ -46,15 +46,27 @@ const Login = () => {
       if (state === "signup") endpoint = "/customer/register";
       if (state === "admin") endpoint = "/admin/login";
 
-      const { data } = await axios.post(backendUrl + endpoint, { email, password });
+      // ✅ Prepare payload: Send full_name only during signup
+      const payload = { 
+        email, 
+        password,
+        ...(state === "signup" && { full_name: name }) 
+      };
+
+      const { data } = await axios.post(backendUrl + endpoint, payload);
 
       if (data?.message) {
-        // ✅ Store Email
+        // ✅ 1. Store basic info
         localStorage.setItem("email", email);
 
-        // ✅ Store the 6-digit Customer ID from the Backend
+        // ✅ 2. Store the 6-digit Customer ID
         if (data.customer_id) {
           localStorage.setItem("customer_id", data.customer_id);
+        }
+
+        // ✅ 3. Store the Full Name for the Navbar
+        if (data.full_name) {
+          localStorage.setItem("full_name", data.full_name);
         }
 
         setShowLogin?.(false);
@@ -70,7 +82,7 @@ const Login = () => {
     } catch (err) {
       const status = err?.response?.status;
       if (status === 400 || status === 401) {
-        setErrorMsg("Invalid credentials");
+        setErrorMsg(err.response?.data?.detail || "Invalid credentials");
       } else {
         setErrorMsg("Server error. Please try again later.");
       }
