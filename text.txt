@@ -1,9 +1,14 @@
-@router.post("/admin/send-notification")
-def send_notification(customer_id: str, message: str):
+@router.post("/admin/approve-policy/{request_id}")
+def approve_policy(request_id: str, customer_id: str):
+    # ... your existing approval logic (moving from requests to issued) ...
+    
+    # ✅ Create Notification for Customer
     notifications.insert_one({
-        "customer_id": customer_id,
-        "message": message,
+        "recipient_id": customer_id, # Targeted to this user
+        "message": "Your policy application has been APPROVED! View your certificate now.",
+        "type": "policy_update",
+        "link": "/customer/policy-history",
         "read": False,
         "timestamp": datetime.utcnow().isoformat()
     })
-    return {"message": "Notification sent"}
+    return {"message": "Approved and Customer Notified"}
