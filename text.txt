@@ -1,24 +1,19 @@
-@router.get("/customer/full-history")
-def get_full_history(customer_id: str = Query(...)):
+@router.post("/customer/submit-application")
+def submit_application(data: dict):
     try:
-        # Search for String or Integer versions for safety
-        query = {"customer_id": customer_id}
-        
-        pending = list(policy_requests.find(query))
-        active = list(issued_policies.find(query))
-        
-        combined = []
-        for item in pending:
-            item["_id"] = str(item["_id"])
-            combined.append(item)
-            
-        for item in active:
-            item["_id"] = str(item["_id"])
-            item["status"] = "Active"
-            combined.append(item)
+        # Check if IDs were sent automatically from Frontend
+        if not data.get("customer_id") or not data.get("full_name"):
+            raise HTTPException(status_code=400, detail="Session Error: Missing Customer Identity.")
 
-        # Sort by most recent
-        combined.sort(key=lambda x: x.get("submitted_at") or x.get("issued_date") or "", reverse=True)
-        return combined
+        # Add Metadata
+        data["request_id"] = f"REQ-{str(uuid4())[:6].upper()}"
+        data["status"] = "Pending"
+        data["submitted_at"] = datetime.utcnow().isoformat()
+        
+        # Ensure ID is stored as string for consistent searching
+        data["customer_id"] = str(data["customer_id"])
+
+        policy_requests.insert_one(data)
+        return {"message": "Application submitted successfully", "request_id": data["request_id"]}
     except Exception as e:
-        raise HTTPException(status_code=500, detail="History fetch failed")
+        raise HTTPException(status_code=500, detail=str(e))
