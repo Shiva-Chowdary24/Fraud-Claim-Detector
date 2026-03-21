@@ -1,16 +1,13 @@
-@router.get("/customer/issued-policies")
-def get_issued(customer_id: str, role: str = Header(None)):
-    # 1. Security Check
-    if role != "customer":
-        raise HTTPException(status_code=403, detail="Unauthorized")
-
-    try:
-        # 2. Search by customer_id (ensure this matches your DB field name)
-        results = list(issued_policies.find({"customer_id": str(customer_id)}))
-        
-        for r in results:
-            r["_id"] = str(r["_id"])
-            
-        return results
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Database fetch failed")
+{
+    "detail": [
+        {
+            "type": "missing",
+            "loc": [
+                "query",
+                "customer_id"
+            ],
+            "msg": "Field required",
+            "input": null
+        }
+    ]
+}
