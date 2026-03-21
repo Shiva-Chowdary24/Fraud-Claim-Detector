@@ -2,14 +2,16 @@ import os, hashlib, hmac, random
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from database import users
+from datetime import datetime
 
 router = APIRouter(tags=["Auth"])
 
-class Auth(BaseModel):
+# Updated Model to include full_name
+class AuthRequest(BaseModel):
     email: str
     password: str
+    full_name: str = None  # Optional for login, required for signup
 
-# --- Password Hashing (Unchanged as requested) ---
 def hash_password(password):
     salt = os.urandom(16)
     hashed = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
@@ -20,51 +22,42 @@ def verify_password(password, salt, stored):
     new_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
     return hmac.compare_digest(new_hash.hex(), stored)
 
-# --- REGISTER: Generate 6-Digit ID ---
 @router.post("/customer/register")
-def register(req: Auth):
+def register(req: AuthRequest):
     if users.find_one({"email": req.email}):
-        raise HTTPException(400, "User exists")
+        raise HTTPException(400, "User already exists")
 
     # Generate unique 6-digit Customer ID
     while True:
         cust_id = str(random.randint(100000, 999999))
-        # Ensure ID uniqueness in the users collection
         if not users.find_one({"customer_id": cust_id}):
             break
 
     salt, hashed = hash_password(req.password)
 
     users.insert_one({
-        "customer_id": cust_id, # Added unique ID
+        "customer_id": cust_id,
+        "full_name": req.full_name, # Storing the name
         "email": req.email,
         "password": hashed,
         "salt": salt,
-        "role": "customer"
+        "role": "customer",
+        "created_at": datetime.utcnow().isoformat()
     })
 
-    return {"message": "Registered", "customer_id": cust_id}
+    return {"message": "Registered", "customer_id": cust_id, "full_name": req.full_name}
 
-# --- LOGIN: Return ID to Frontend ---
 @router.post("/customer/login")
-def login(req: Auth):
+def login(req: AuthRequest):
     user = users.find_one({"email": req.email, "role": "customer"})
 
     if not user or not verify_password(req.password, user["salt"], user["password"]):
-        raise HTTPException(401, "Invalid")
+        raise HTTPException(401, "Invalid credentials")
 
-    # Return customer_id so frontend can save it to localStorage
+    # Returning both the ID and the Full Name
     return {
         "message": "Login success", 
         "email": req.email, 
-        "customer_id": user.get("customer_id") 
+        "customer_id": user.get("customer_id"),
+        "full_name": user.get("full_name") 
     }
-
-@router.post("/admin/login")
-def admin_login(req: Auth):
-    user = users.find_one({"email": req.email, "role": "admin"})
-
-    if not user or not verify_password(req.password, user["salt"], user["password"]):
-        raise HTTPException(401, "Invalid")
-
-    return {"message": "Admin login success"}
