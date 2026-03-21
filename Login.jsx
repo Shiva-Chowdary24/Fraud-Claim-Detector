@@ -12,26 +12,21 @@ import {
   ArrowRight,
   ShieldCheck,
   ShieldAlert,
-  AlertCircle, // Lucide icon for error banner
+  AlertCircle,
 } from "lucide-react";
 
 const Login = () => {
   const navigate = useNavigate();
-  // state: "login", "signup", or "admin"
   const [state, setState] = useState("login");
   const [loading, setLoading] = useState(false);
 
-  // Ensure backendUrl is your API base, e.g., "http://localhost:5000"
   const { setShowLogin, backendUrl } = useContext(AppContext);
 
-  const [name, setName] = useState(""); // shown on signup (not sent to API per your requirement)
+  const [name, setName] = useState(""); 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
-  // Error banner message (Lucide)
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Reset error when user edits fields
   const handleEmailChange = (e) => {
     setEmail(e.target.value);
     if (errorMsg) setErrorMsg("");
@@ -41,11 +36,10 @@ const Login = () => {
     if (errorMsg) setErrorMsg("");
   };
 
-  // ✅ Uses your small snippet's endpoints & response shape
   const onSubmitHandler = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setErrorMsg(""); // reset on new submit
+    setErrorMsg(""); 
 
     try {
       let endpoint = "/customer/login";
@@ -54,11 +48,15 @@ const Login = () => {
 
       const { data } = await axios.post(backendUrl + endpoint, { email, password });
 
-      // ✅ backend returns: { message, email }
       if (data?.message) {
+        // ✅ Store Email
         localStorage.setItem("email", email);
 
-        // Close modal/panel if using one
+        // ✅ Store the 6-digit Customer ID from the Backend
+        if (data.customer_id) {
+          localStorage.setItem("customer_id", data.customer_id);
+        }
+
         setShowLogin?.(false);
 
         if (state === "admin") {
@@ -67,17 +65,14 @@ const Login = () => {
           navigate("/customer/dashboard");
         }
       } else {
-        // No message → treat as invalid credentials
         setErrorMsg("Invalid credentials");
       }
     } catch (err) {
       const status = err?.response?.status;
-      // Standardize auth failures to a consistent banner label
       if (status === 400 || status === 401) {
         setErrorMsg("Invalid credentials");
       } else {
-        // For other errors you can keep generic for UX consistency
-        setErrorMsg("Invalid credentials");
+        setErrorMsg("Server error. Please try again later.");
       }
     } finally {
       setLoading(false);
@@ -86,7 +81,6 @@ const Login = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
-      {/* Background with Dark Overlay */}
       <div
         className="absolute inset-0 z-0 bg-cover bg-center"
         style={{
@@ -107,7 +101,6 @@ const Login = () => {
             state === "admin" ? "border-emerald-500/40" : "border-white/10"
           }`}
         >
-          {/* Close Button - Redirects to Landing Page */}
           <button
             type="button"
             onClick={() => navigate("/")}
@@ -116,7 +109,6 @@ const Login = () => {
             <X className="w-5 h-5" />
           </button>
 
-          {/* Header */}
           <div className="flex flex-col items-center mb-6">
             <div
               className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 border transition-all duration-500 ${
@@ -139,20 +131,16 @@ const Login = () => {
                 ? "Welcome Back"
                 : "Join Us"}
             </h1>
-            <p className="text-slate-400 text-sm mt-2">
+            <p className="text-slate-400 text-sm mt-2 text-center">
               {state === "admin" ? "Authorized Personnel Only" : "Protecting your future with AI"}
             </p>
           </div>
 
-          {/* ❗ Error Banner (Lucide) */}
           {errorMsg && (
             <motion.div
               initial={{ opacity: 0, y: -6 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ type: "spring", stiffness: 380, damping: 22 }}
               className="mb-4 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-300"
-              role="alert"
-              aria-live="assertive"
             >
               <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-400 mt-0.5" />
               <div className="text-sm font-medium">{errorMsg}</div>
@@ -202,13 +190,12 @@ const Login = () => {
             </div>
           </div>
 
-          {/* Submit Button */}
           <button
             disabled={loading}
             className={`w-full font-bold py-3.5 rounded-xl mt-8 flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg ${
               state === "admin"
-                ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/20"
-                : "bg-blue-600 hover:bg-blue-500 shadow-blue-900/20"
+                ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/20 text-white"
+                : "bg-blue-600 hover:bg-blue-500 shadow-blue-900/20 text-white"
             }`}
           >
             {loading ? (
@@ -221,7 +208,6 @@ const Login = () => {
             )}
           </button>
 
-          {/* Footer Navigation */}
           <div className="mt-8 text-center space-y-4">
             {state === "admin" ? (
               <button
@@ -241,7 +227,7 @@ const Login = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      setErrorMsg(""); // clear error when switching modes
+                      setErrorMsg("");
                       setState(state === "login" ? "signup" : "login");
                     }}
                     className="text-blue-400 ml-1.5 font-bold hover:underline"
@@ -253,7 +239,7 @@ const Login = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      setErrorMsg(""); // clear error when switching modes
+                      setErrorMsg("");
                       setState("admin");
                     }}
                     className="text-xs uppercase tracking-widest text-emerald-500 font-bold hover:text-emerald-400 transition-colors"
