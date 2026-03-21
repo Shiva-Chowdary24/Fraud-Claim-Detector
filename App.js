@@ -6,15 +6,14 @@ import LandingPage from "./pages/LandingPage";
 import Login from "./pages/Login";
 import ProtectedRoute from "./components/ProtectedRoute";
 
-
 /* Admin Pages */
 import Dashboard from "./pages/Dashboard";
 import AddDealer from "./pages/AddDealer";
 import DeleteDealer from "./pages/DeleteDealer";
 import Logs from "./pages/Logs";
-import PolicyRequests from "./pages/PolicyRequests"
-import CustomerQueries from "./pages/CustomerQueries"
-import AuditLogs from "./pages/AuditLogs"
+import PolicyRequests from "./pages/PolicyRequests";
+import CustomerQueries from "./pages/CustomerQueries";
+import AuditLogs from "./pages/AuditLogs";
 import IssuePolicies from "./pages/IssuePolicy";
 
 /* Customer Pages */
@@ -27,51 +26,40 @@ import ClaimAmount from "./pages/ClaimAmount";
 import ApplyPolicyForm from "./pages/ApplyPolicyForm";
 
 function App() {
-
   return (
-
     <div className="font-outfit">
-
       <BrowserRouter>
-
         <Routes>
-
           {/* Public Routes */}
-
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
-          
 
-          {/* Admin Routes */}
+          {/* 🔐 Admin Routes (All Protected) */}
+          <Route path="/admin/dashboard" element={<ProtectedRoute roleRequired="admin"><Dashboard /></ProtectedRoute>} />
+          <Route path="/admin/add" element={<ProtectedRoute roleRequired="admin"><AddDealer /></ProtectedRoute>} />
+          <Route path="/admin/delete" element={<ProtectedRoute roleRequired="admin"><DeleteDealer /></ProtectedRoute>} />
+          <Route path="/admin/logs" element={<ProtectedRoute roleRequired="admin"><Logs /></ProtectedRoute>} />
+          <Route path="/admin/policy-requests" element={<ProtectedRoute roleRequired="admin"><PolicyRequests /></ProtectedRoute>} />
+          <Route path="/admin/customer-queries" element={<ProtectedRoute roleRequired="admin"><CustomerQueries /></ProtectedRoute>} />
+          <Route path="/admin/audit-logs" element={<ProtectedRoute roleRequired="admin"><AuditLogs /></ProtectedRoute>} />
+          <Route path="/admin/Issue-policy" element={<ProtectedRoute roleRequired="admin"><IssuePolicies /></ProtectedRoute>} />
 
-          <Route path="/admin/dashboard" element={<ProtectedRoute roleRequired="admin"><Dashboard /></ProtectedRoute>}/>
-          <Route path="/admin/add" element={<AddDealer />} />
-          <Route path="/admin/delete" element={<DeleteDealer />} />
-          <Route path="/admin/logs" element={<Logs />} />
-          <Route path="/admin/policy-requests" element={<PolicyRequests/>}/>
-          <Route path="/admin/customer-queries" element={<CustomerQueries/>}/>
-          <Route path="/admin/audit-logs" element={<AuditLogs />} />
-          <Route path="/admin/Issue-policy" element={<IssuePolicies />} />
-          {/* Customer Routes */}
+          {/* 🔐 Customer Routes (All Protected) */}
+          <Route path="/customer/dashboard" element={<ProtectedRoute roleRequired="customer"><CustDashboard /></ProtectedRoute>} />
+          <Route path="/customer/apply-policy" element={<ProtectedRoute roleRequired="customer"><CustApplyPolicy /></ProtectedRoute>} />
+          <Route path="/customer/issued-policies" element={<ProtectedRoute roleRequired="customer"><CustIssuedPolicies /></ProtectedRoute>} />
+          <Route path="/customer/policy-history" element={<ProtectedRoute roleRequired="customer"><CustPolicyHistory /></ProtectedRoute>} />
+          <Route path="/customer/ask-question" element={<ProtectedRoute roleRequired="customer"><CustAskQuestion /></ProtectedRoute>} />
+          <Route path="/customer/predict" element={<ProtectedRoute roleRequired="customer"><ClaimAmount /></ProtectedRoute>} />
+          <Route path="/customer/apply-form" element={<ProtectedRoute roleRequired="customer"><ApplyPolicyForm /></ProtectedRoute>} />
 
-          <Route path="/customer/dashboard" element={<ProtectedRoute roleRequired="customer"><CustDashboard /></ProtectedRoute>}/>
-          <Route path="/customer/apply-policy" element={<CustApplyPolicy />} />
-          <Route path="/customer/issued-policies" element={<CustIssuedPolicies />} />
-          <Route path="/customer/policy-history" element={<CustPolicyHistory />} />
-          <Route path="/customer/ask-question" element={<CustAskQuestion />} />
-          <Route path="/customer/predict" element={<ClaimAmount />} />
-          <Route path="/customer/apply-form" element={<ApplyPolicyForm />} />
-
+          {/* 404 Fallback - Redirects to Landing if route doesn't exist */}
+          <Route path="*" element={<LandingPage />} />
         </Routes>
-
       </BrowserRouter>
 
-      {/* Toast Notifications */}
-
       <ToastContainer position="top-right" autoClose={3000} />
-
     </div>
-
   );
 }
 
