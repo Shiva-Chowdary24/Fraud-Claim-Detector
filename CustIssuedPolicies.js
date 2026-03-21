@@ -3,33 +3,48 @@ import API from "../services/api";
 import CustSidebar from "../components/CustSidebar";
 import CustNavbar from "../components/CustNavbar";
 import { toast } from "react-toastify";
-import { ShieldCheck, Banknote, Clock, ChevronDown, ChevronUp, CreditCard, Info } from "lucide-react";
+import { ShieldCheck, Clock, ChevronDown, ChevronUp, CreditCard, Info } from "lucide-react";
 
 function CustIssuedPolicies() {
   const [policies, setPolicies] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState(null); // Track which policy shows "Know More"
+  const [expandedId, setExpandedId] = useState(null);
 
-  const userEmail = localStorage.getItem("email");
+  // Retrieve auth data from localStorage
+  const customerId = localStorage.getItem("customer_id");
+  const userRole = localStorage.getItem("role");
 
   useEffect(() => {
     const fetchPolicies = async () => {
       try {
-        // Updated endpoint to match our new backend route
-        const res = await API.get(`/issued-policies?email=${userEmail}`);
+        setLoading(true);
+        // ✅ Updated: Sending 'customer_id' as query param and 'role' as Header
+        const res = await API.get(`/customer/issued-policies`, {
+          params: { customer_id: customerId },
+          headers: { 
+            "role": userRole 
+          }
+        });
+        
         setPolicies(res.data);
       } catch (err) {
-        toast.error("Failed to load your issued policies.");
+        console.error("Fetch Error:", err);
+        toast.error("Security check failed or server unreachable.");
       } finally {
         setLoading(false);
       }
     };
-    if (userEmail) fetchPolicies();
-  }, [userEmail]);
+
+    if (customerId && userRole) {
+      fetchPolicies();
+    } else {
+      setLoading(false);
+      toast.error("Session expired. Please log in again.");
+    }
+  }, [customerId, userRole]);
 
   const handlePayment = (policyId, amount) => {
-    toast.info(`Redirecting to payment gateway for $${amount}...`);
-    // This is where you'd link your Stripe/Paypal logic later
+    toast.info(`Redirecting to secure gateway for $${amount}...`);
   };
 
   const toggleExpand = (id) => {
@@ -54,17 +69,17 @@ function CustIssuedPolicies() {
           ) : policies.length === 0 ? (
             <div className="bg-[#111e32]/50 border border-dashed border-slate-800 rounded-[2.5rem] p-20 text-center shadow-2xl">
               <ShieldCheck size={56} className="mx-auto text-slate-700 mb-4" />
-              <p className="text-slate-400 font-medium">You don't have any issued policies yet.</p>
+              <p className="text-slate-400 font-medium">No active policies found for your account.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pb-10">
               {policies.map((policy) => (
-                <div key={policy.policy_id} className="bg-[#111e32]/80 backdrop-blur-md rounded-[2.5rem] shadow-2xl border border-slate-800 overflow-hidden transition-all hover:border-blue-500/30">
+                <div key={policy.policy_id || policy._id} className="bg-[#111e32]/80 backdrop-blur-md rounded-[2.5rem] shadow-2xl border border-slate-800 overflow-hidden transition-all hover:border-blue-500/30">
                   
                   {/* Card Header */}
                   <div className="bg-[#1a2c46] p-6 flex justify-between items-center border-b border-slate-800">
                     <div>
-                      <p className="text-[10px] uppercase text-slate-500 font-bold tracking-[0.2em]">Policy Serial Number</p>
+                      <p className="text-[10px] uppercase text-slate-500 font-bold tracking-[0.2em]">Policy Number</p>
                       <h3 className="text-xl font-black text-blue-400 tracking-tighter">{policy.policy_id}</h3>
                     </div>
                     <div className="bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-black border border-emerald-500/20 uppercase tracking-widest">
@@ -76,59 +91,50 @@ function CustIssuedPolicies() {
                   <div className="p-8 space-y-6">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <span className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Plan Name</span>
+                        <span className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Plan</span>
                         <span className="text-white font-bold">{policy.plan_name}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Policy Holder</span>
-                        <span className="text-white font-bold">{policy.full_name}</span>
                       </div>
                       <div>
                         <span className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Tenure</span>
                         <span className="text-white font-bold">{policy.tenure} Years</span>
                       </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Status</span>
+                      <div className="col-span-2">
+                        <span className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Premium Status</span>
                         <span className="text-orange-400 font-bold text-xs flex items-center gap-1">
-                          <Clock size={12} /> First Installment Due
+                          <Clock size={12} /> Installment Pending
                         </span>
                       </div>
                     </div>
 
-                    {/* Action Area */}
                     <div className="pt-4 flex gap-3">
                       <button 
                         onClick={() => toggleExpand(policy.policy_id)}
                         className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 text-xs transition-all border border-slate-700"
                       >
                         {expandedId === policy.policy_id ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
-                        {expandedId === policy.policy_id ? "Hide Details" : "Know More"}
+                        Details
                       </button>
                     </div>
 
-                    {/* Expandable Info Section */}
                     {expandedId === policy.policy_id && (
-                      <div className="mt-6 p-6 bg-black/30 rounded-3xl border border-slate-800/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <div className="mt-4 p-6 bg-black/30 rounded-3xl border border-slate-800/50 space-y-4">
                         <div className="flex items-start gap-3">
                           <Info size={16} className="text-blue-500 mt-1 shrink-0" />
                           <div>
-                            <p className="text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-widest">Plan Coverage Details</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-widest">Coverage Info</p>
                             <p className="text-xs text-slate-400 leading-relaxed">
-                              This policy covers all conditions specified in the {policy.plan_name} agreement. 
-                              Your annual premium is <strong>${policy.premium_amount}</strong>. 
-                              Please pay your first installment to initiate complete coverage benefits.
+                              Annual Premium: <strong>${policy.premium_amount || policy.premium}</strong>. 
+                              Issued on: {new Date(policy.approved_at).toLocaleDateString()}
                             </p>
                           </div>
                         </div>
                         
-                        <div className="pt-4">
-                          <button 
-                            onClick={() => handlePayment(policy.policy_id, policy.premium_amount)}
-                            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-blue-900/20 transition-all active:scale-95"
-                          >
-                            <CreditCard size={18} /> Pay First Installment (${policy.premium_amount})
-                          </button>
-                        </div>
+                        <button 
+                          onClick={() => handlePayment(policy.policy_id, policy.premium_amount || policy.premium)}
+                          className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl transition-all active:scale-95"
+                        >
+                          <CreditCard size={18} /> Pay Premium
+                        </button>
                       </div>
                     )}
                   </div>
