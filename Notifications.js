@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, Clock, ChevronRight, Circle, Trash2 } from 'lucide-react';
 import axios from 'axios';
+import { toast } from 'react-toastify'; // Ensure toast is imported
 
 const Notifications = ({ notifications, onClose, role, setNotifications }) => {
   const navigate = useNavigate();
@@ -22,7 +23,7 @@ const Notifications = ({ notifications, onClose, role, setNotifications }) => {
       onClose();
     } catch (e) {
       console.log("Error erasing notification");
-      navigate(notif.link); // Still navigate so user can work
+      navigate(notif.link); 
       onClose();
     }
   };
@@ -30,13 +31,24 @@ const Notifications = ({ notifications, onClose, role, setNotifications }) => {
   // 2. Erase all notifications for this role/user
   const handleClearAll = async () => {
     try {
+      // ✅ 1. Get the correct ID to clear (ADMIN or the 6-digit Customer ID)
       const recipientId = role === "admin" ? "ADMIN" : localStorage.getItem("customer_id");
+      
+      // ✅ 2. Tell the Backend to delete everything from the database
       await axios.delete(`http://127.0.0.1:8000/${role}/notifications/clear-all?recipient_id=${recipientId}`);
       
-      if (setNotifications) setNotifications([]);
+      // ✅ 3. IMMEDIATELY empty the React state so the UI updates without a refresh
+      if (setNotifications) {
+        setNotifications([]); 
+      }
+      
+      // ✅ 4. Close the dropdown and show success
       onClose();
+      toast.success("Inbox cleared");
+      
     } catch (e) {
-      console.log("Error clearing notifications");
+      console.error("Error clearing notifications:", e);
+      toast.error("Failed to clear notifications");
     }
   };
 
