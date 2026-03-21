@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException,Query
 from database import policy_requests, issued_policies, queries, notifications
 from datetime import datetime
 from bson import ObjectId
@@ -10,26 +10,7 @@ router = APIRouter()
 def now():
     return datetime.utcnow().isoformat()
 
-# --- CUSTOMER: Submit Policy Application ---
-@router.post("/customer/submit-application")
-def submit_application(data: dict):
-    try:
-        # 1. Validation
-        if not data.get("full_name") or not data.get("policy_id"):
-            raise HTTPException(status_code=400, detail="Required fields are missing.")
 
-        # 2. Add Request Metadata
-        data["request_id"] = f"REQ-{str(uuid4())[:6].upper()}"
-        data["status"] = "Pending"
-        data["submitted_at"] = now()
-        
-        # 3. Insert into policy_requests collection (Waiting for Admin)
-        policy_requests.insert_one(data) 
-        
-        return {"message": "Application submitted for Admin approval", "request_id": data["request_id"]}
-    except Exception as e:
-        print(f"Submission Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 # --- CUSTOMER: View My Applications Status ---
 @router.get("/my-requests")
@@ -73,38 +54,57 @@ def get_issued_policies(email: str):
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to fetch issued policies")
+
+@router.post("/customer/submit-application")
+def submit_application(data: dict):
+    try:
+        # Check if IDs were sent automatically from Frontend
+        if not data.get("customer_id") or not data.get("full_name"):
+            raise HTTPException(status_code=400, detail="Session Error: Missing Customer Identity.")
+
+        # Add Metadata
+        data["request_id"] = f"REQ-{str(uuid4())[:6].upper()}"
+        data["status"] = "Pending"
+        data["submitted_at"] = datetime.utcnow().isoformat()
+        
+        # Ensure ID is stored as string for consistent searching
+        data["customer_id"] = str(data["customer_id"])
+
+        policy_requests.insert_one(data)
+        return {"message": "Application submitted successfully", "request_id": data["request_id"]}
+        notifications.insert_one({
+        "recipient_id": "ADMIN", # Global tag for all admins
+        "message": f"New Policy Request from {data.get('full_name')} (ID: {data.get('customer_id')})",
+        "type": "new_request",
+        "link": "/admin/policy-requests",
+        "read": False,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+    return {"message": "Submitted and Admin Notified"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/customer/full-history")
 def get_full_history(customer_id: str = Query(...)):
     try:
-        # Search for both String and Integer versions of the ID to be safe
-        search_query = {
-            "$or": [
-                {"customer_id": customer_id},          # "123456"
-                {"customer_id": int(customer_id) if customer_id.isdigit() else None} # 123456
-            ]
-        }
-
-        # 1. Fetch from 'policy_requests'
-        pending_data = list(policy_requests.find(search_query))
+        # Search for String or Integer versions for safety
+        query = {"customer_id": customer_id}
         
-        # 2. Fetch from 'issued_policies'
-        active_data = list(issued_policies.find(search_query))
+        pending = list(policy_requests.find(query))
+        active = list(issued_policies.find(query))
         
-        # Combine
         combined = []
-        for item in pending_data:
+        for item in pending:
             item["_id"] = str(item["_id"])
             combined.append(item)
             
-        for item in active_data:
+        for item in active:
             item["_id"] = str(item["_id"])
             item["status"] = "Active"
             combined.append(item)
 
+        # Sort by most recent
+        combined.sort(key=lambda x: x.get("submitted_at") or x.get("issued_date") or "", reverse=True)
         return combined
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    except Exception as e:
-        print(f"Error fetching history: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        raise HTTPException(status_code=500, detail="History fetch failed")
