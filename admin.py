@@ -14,36 +14,36 @@ def now():
 def get_requests():
     return list(policy_requests.find({}, {"_id": 0}))
 
-@router.post("/approve/{policy}")
-def approve(policy: str):
-    req = policy_requests.find_one({"Policy": policy})
-
+@router.post("/admin/policy-approve/{request_id}")
+def approve_policy(request_id: str):
+    # 1. Find the application request
+    req = policy_requests.find_one({"_id": ObjectId(request_id)})
     if not req:
-        raise HTTPException(404, "Not found")
+        raise HTTPException(404, "Request not found")
 
-    req.pop("_id", None)
+    # 2. Generate the Policy ID (e.g., PL-HEA-1234)
+    plan_prefix = req.get("plan_name", "POL")[:3].upper()
+    policy_serial = f"PL-{plan_prefix}-{random.randint(1000, 9999)}"
 
-    customers.insert_one(req)
+    # 3. Create the Issued Policy Record
+    # This links the Policy to the Permanent 6-digit Customer ID
+    issued_data = {
+        "policy_id": policy_serial,       
+        "customer_id": req.get("customer_id"), # The 6-digit ID from signup
+        "email": req.get("email"),
+        "full_name": req.get("full_name"),
+        "plan_name": req.get("plan_name"),
+        "premium_amount": req.get("premium_amount"),
+        "tenure": req.get("tenure"),
+        "status": "Active",
+        "issued_date": datetime.utcnow().isoformat()
+    }
 
-    policy_requests.update_one(
-        {"Policy": policy},
-        {"$set": {"status": "Approved"}}
-    )
+    # 4. Move data between collections
+    issued_policies.insert_one(issued_data)
+    policy_requests.delete_one({"_id": ObjectId(request_id)})
 
-    notifications.insert_one({
-        "user": req.get("email"),
-        "message": f"Policy {policy} approved",
-        "read": False,
-        "timestamp": now()
-    })
-
-    audit_logs.insert_one({
-        "action": "Approved",
-        "details": policy,
-        "timestamp": now()
-    })
-
-    return {"message": "Approved"}
+    return {"message": "Policy Approved", "policy_id": policy_serial}
 
 @router.post("/decline/{policy}")
 def decline(policy: str):
