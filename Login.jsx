@@ -1,9 +1,9 @@
-// src/pages/Login.jsx
 import React, { useContext, useState } from "react";
 import { AppContext } from "../context/AppContext";
 import { motion } from "framer-motion";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
 import {
   Mail,
   Lock,
@@ -17,7 +17,7 @@ import {
 
 const Login = () => {
   const navigate = useNavigate();
-  const [state, setState] = useState("login");
+  const [state, setState] = useState("login"); // 'login', 'signup', or 'admin'
   const [loading, setLoading] = useState(false);
 
   const { setShowLogin, backendUrl } = useContext(AppContext);
@@ -26,15 +26,6 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
-
-  const handleEmailChange = (e) => {
-    setEmail(e.target.value);
-    if (errorMsg) setErrorMsg("");
-  };
-  const handlePasswordChange = (e) => {
-    setPassword(e.target.value);
-    if (errorMsg) setErrorMsg("");
-  };
 
   const onSubmitHandler = async (e) => {
     e.preventDefault();
@@ -46,7 +37,6 @@ const Login = () => {
       if (state === "signup") endpoint = "/customer/register";
       if (state === "admin") endpoint = "/admin/login";
 
-      // ✅ Prepare payload: Send full_name only during signup
       const payload = { 
         email, 
         password,
@@ -55,37 +45,43 @@ const Login = () => {
 
       const { data } = await axios.post(backendUrl + endpoint, payload);
 
-      if (data?.message) {
-        // ✅ 1. Store basic info
+      // ✅ CASE 1: SUCCESSFUL REGISTRATION
+      if (state === "signup" && data) {
+        toast.success("Account created! Please sign in.");
+        setState("login"); // Switch to login mode
+        setName("");
+        return;
+      }
+
+      // ✅ CASE 2: SUCCESSFUL LOGIN (User or Admin)
+      if (data) {
+        // 1. Store the "Key" (Token) - Required by ProtectedRoute
+        // If your backend doesn't send a token yet, we use a dummy for the bouncer
+        localStorage.setItem("token", data.token || "session_active_token");
+
+        // 2. Store the "Role" - Required by ProtectedRoute
+        const userRole = state === "admin" ? "admin" : "customer";
+        localStorage.setItem("role", userRole);
+
+        // 3. Store Identity Data
         localStorage.setItem("email", email);
+        if (data.customer_id) localStorage.setItem("customer_id", data.customer_id);
+        if (data.full_name) localStorage.setItem("full_name", data.full_name);
 
-        // ✅ 2. Store the 6-digit Customer ID
-        if (data.customer_id) {
-          localStorage.setItem("customer_id", data.customer_id);
-        }
-
-        // ✅ 3. Store the Full Name for the Navbar
-        if (data.full_name) {
-          localStorage.setItem("full_name", data.full_name);
-        }
-
+        toast.success(`Welcome back, ${data.full_name || 'User'}!`);
         setShowLogin?.(false);
 
-        if (state === "admin") {
+        // 4. Redirect based on the role we just saved
+        if (userRole === "admin") {
           navigate("/admin/dashboard");
         } else {
           navigate("/customer/dashboard");
         }
-      } else {
-        setErrorMsg("Invalid credentials");
       }
     } catch (err) {
-      const status = err?.response?.status;
-      if (status === 400 || status === 401) {
-        setErrorMsg(err.response?.data?.detail || "Invalid credentials");
-      } else {
-        setErrorMsg("Server error. Please try again later.");
-      }
+      const msg = err.response?.data?.detail || "Invalid credentials or server error";
+      setErrorMsg(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -96,8 +92,7 @@ const Login = () => {
       <div
         className="absolute inset-0 z-0 bg-cover bg-center"
         style={{
-          backgroundImage:
-            "linear-gradient(rgba(2, 6, 23, 0.85), rgba(2, 6, 23, 0.85)), url('/images/bg.jpg')",
+          backgroundImage: "linear-gradient(rgba(2, 6, 23, 0.85), rgba(2, 6, 23, 0.85)), url('/images/bg.jpg')",
         }}
       />
 
@@ -121,81 +116,60 @@ const Login = () => {
             <X className="w-5 h-5" />
           </button>
 
-          <div className="flex flex-col items-center mb-6">
-            <div
-              className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 border transition-all duration-500 ${
-                state === "admin"
-                  ? "bg-emerald-600/20 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.2)]"
-                  : "bg-blue-600/20 border-blue-500/30"
+          <div className="flex flex-col items-center mb-6 text-center">
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 border transition-all duration-500 ${
+                state === "admin" ? "bg-emerald-600/20 border-emerald-500/40" : "bg-blue-600/20 border-blue-500/30"
               }`}
             >
-              {state === "admin" ? (
-                <ShieldAlert className="text-emerald-400 w-7 h-7" />
-              ) : (
-                <ShieldCheck className="text-blue-400 w-7 h-7" />
-              )}
+              {state === "admin" ? <ShieldAlert className="text-emerald-400 w-7 h-7" /> : <ShieldCheck className="text-blue-400 w-7 h-7" />}
             </div>
 
             <h1 className="text-3xl font-bold text-white tracking-tight">
-              {state === "admin"
-                ? "Admin Portal"
-                : state === "login"
-                ? "Welcome Back"
-                : "Join Us"}
+              {state === "admin" ? "Admin Portal" : state === "login" ? "Welcome Back" : "Join Us"}
             </h1>
-            <p className="text-slate-400 text-sm mt-2 text-center">
-              {state === "admin" ? "Authorized Personnel Only" : "Protecting your future with AI"}
-            </p>
           </div>
 
           {errorMsg && (
-            <motion.div
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-4 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-300"
-            >
-              <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-400 mt-0.5" />
-              <div className="text-sm font-medium">{errorMsg}</div>
-            </motion.div>
+            <div className="mb-4 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-300 text-sm">
+              <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-400" />
+              {errorMsg}
+            </div>
           )}
 
           <div className="space-y-4">
             {state === "signup" && (
-              <div className="relative group">
+              <div className="relative group text-left">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
                 <input
-                  onChange={(e) => {
-                    setName(e.target.value);
-                    if (errorMsg) setErrorMsg("");
-                  }}
+                  onChange={(e) => setName(e.target.value)}
                   value={name}
                   type="text"
-                  className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3 pl-12 pr-4 outline-none focus:border-blue-500/50 text-white placeholder:text-slate-600"
+                  className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3 pl-12 pr-4 outline-none focus:border-blue-500/50 text-white"
                   placeholder="Full Name"
                   required
                 />
               </div>
             )}
 
-            <div className="relative group">
+            <div className="relative group text-left">
               <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
               <input
-                onChange={handleEmailChange}
+                onChange={(e) => setEmail(e.target.value)}
                 value={email}
                 type="email"
-                className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3 pl-12 pr-4 outline-none focus:border-blue-500/50 text-white placeholder:text-slate-600"
+                className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3 pl-12 pr-4 outline-none focus:border-blue-500/50 text-white"
                 placeholder="Email Address"
                 required
               />
             </div>
 
-            <div className="relative group">
+            <div className="relative group text-left">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
               <input
-                onChange={handlePasswordChange}
+                onChange={(e) => setPassword(e.target.value)}
                 value={password}
                 type="password"
-                className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3 pl-12 pr-4 outline-none focus:border-blue-500/50 text-white placeholder:text-slate-600"
+                className="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3 pl-12 pr-4 outline-none focus:border-blue-500/50 text-white"
                 placeholder="Password"
                 required
               />
@@ -204,58 +178,30 @@ const Login = () => {
 
           <button
             disabled={loading}
-            className={`w-full font-bold py-3.5 rounded-xl mt-8 flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg ${
-              state === "admin"
-                ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/20 text-white"
-                : "bg-blue-600 hover:bg-blue-500 shadow-blue-900/20 text-white"
+            className={`w-full font-bold py-3.5 rounded-xl mt-8 flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
+              state === "admin" ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-blue-600 hover:bg-blue-500 text-white"
             }`}
           >
-            {loading ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <>
-                {state === "login" ? "Sign In" : state === "admin" ? "Admin Login" : "Create Account"}
-                <ArrowRight className="w-4 h-4" />
-              </>
-            )}
+            {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 
+              <>{state === "login" ? "Sign In" : state === "admin" ? "Admin Login" : "Create Account"} <ArrowRight className="w-4 h-4" /></>
+            }
           </button>
 
           <div className="mt-8 text-center space-y-4">
             {state === "admin" ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setErrorMsg("");
-                  setState("login");
-                }}
-                className="text-sm font-medium text-emerald-400 hover:text-emerald-300 transition-colors flex items-center justify-center gap-2 mx-auto"
-              >
+              <button type="button" onClick={() => setState("login")} className="text-sm font-medium text-emerald-400 hover:text-emerald-300">
                 ← Back to User Login
               </button>
             ) : (
               <>
                 <p className="text-sm text-slate-400">
                   {state === "login" ? "New here?" : "Already have an account?"}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setErrorMsg("");
-                      setState(state === "login" ? "signup" : "login");
-                    }}
-                    className="text-blue-400 ml-1.5 font-bold hover:underline"
-                  >
+                  <button type="button" onClick={() => setState(state === "login" ? "signup" : "login")} className="text-blue-400 ml-1.5 font-bold hover:underline">
                     {state === "login" ? "Create Account" : "Sign In"}
                   </button>
                 </p>
                 <div className="pt-4 border-t border-white/5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setErrorMsg("");
-                      setState("admin");
-                    }}
-                    className="text-xs uppercase tracking-widest text-emerald-500 font-bold hover:text-emerald-400 transition-colors"
-                  >
+                  <button type="button" onClick={() => setState("admin")} className="text-xs uppercase tracking-widest text-emerald-500 font-bold">
                     Admin Login
                   </button>
                 </div>
