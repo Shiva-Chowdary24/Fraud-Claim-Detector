@@ -1,13 +1,13 @@
-{
-    "detail": [
-        {
-            "type": "missing",
-            "loc": [
-                "query",
-                "customer_id"
-            ],
-            "msg": "Field required",
-            "input": null
-        }
-    ]
-}
+@router.get("/customer/available-policies")
+def get_available_plans(role: str = Header(None)):
+    if role != "customer":
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    try:
+        # Fetch the list of plans users can apply for
+        plans = list(policies_collection.find({}))
+        for p in plans:
+            p["_id"] = str(p["_id"])
+        return plans
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Could not fetch plans")
