@@ -3,13 +3,16 @@ import { useLocation, useNavigate } from "react-router-dom";
 import API from "../services/api";
 import CustSidebar from "../components/CustSidebar";
 import CustNavbar from "../components/CustNavbar";
-import { Send, User, Wallet, Briefcase, Activity, ShieldCheck, ArrowLeft } from "lucide-react";
+import { Send, User, Wallet, Briefcase, Activity, ShieldCheck, ArrowLeft, Calendar } from "lucide-react";
 import { toast } from "react-toastify";
 
 function ApplyPolicyForm() {
   const location = useLocation();
   const navigate = useNavigate();
   const policy = location.state?.policy;
+
+  // Retrieve logged-in user email
+  const userEmail = localStorage.getItem("email") || "user@example.com"; 
 
   const [formData, setFormData] = useState({
     full_name: "",
@@ -24,9 +27,9 @@ function ApplyPolicyForm() {
 
   const [submitting, setSubmitting] = useState(false);
 
-  // If someone accesses this page without selecting a policy, send them back
+  // Redirect if no policy data was passed
   if (!policy) {
-    navigate("/customer/apply-policy");
+    setTimeout(() => navigate("/customer/apply-policy"), 0);
     return null;
   }
 
@@ -39,33 +42,36 @@ function ApplyPolicyForm() {
     setSubmitting(true);
 
     try {
+      // Construct the full request payload
       const payload = {
         ...formData,
+        email: userEmail, // Critical for "My Requests" filter
         policy_id: policy.id,
         plan_name: policy.plan_name,
         premium_amount: Number(policy.premium_amount),
         tenure: Number(policy.tenure),
-        status: "Pending", // For Admin Approval
-        applied_date: new Date().toISOString(),
+        description: policy.description
       };
 
+      // Call the new corrected backend route
       await API.post("/customer/submit-application", payload);
       
-      toast.success("Application submitted for Admin approval!");
+      toast.success("Application submitted! Redirecting...");
       
-      // Smooth transition back to the catalog
+      // Transition back to catalog
       setTimeout(() => {
         navigate("/customer/apply-policy");
-      }, 1500);
+      }, 2000);
 
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Submission failed");
+      console.error("Submission error:", err);
+      toast.error(err.response?.data?.detail || "Failed to submit request");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const inputStyle = "w-full bg-[#1e293b]/50 border border-slate-700 p-3.5 rounded-xl text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-500";
+  const inputStyle = "w-full bg-[#1e293b]/40 border border-slate-700 p-3.5 rounded-xl text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-500";
   const labelStyle = "text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 mb-1 flex items-center gap-2";
 
   return (
@@ -77,99 +83,112 @@ function ApplyPolicyForm() {
         <main className="flex-1 overflow-y-auto p-8">
           <div className="max-w-4xl mx-auto">
             
-            {/* Back Button */}
-            <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-slate-400 hover:text-white mb-6 transition-colors group">
-              <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
-              <span className="text-sm font-medium">Back to Catalog</span>
-            </button>
+            {/* Header / Back Link */}
+            <div className="flex items-center justify-between mb-8">
+              <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors group">
+                <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
+                <span className="text-sm font-medium">Back to Catalog</span>
+              </button>
+              <div className="flex items-center gap-2 px-4 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-full">
+                <ShieldCheck size={14} className="text-blue-400" />
+                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-tighter">Verified Plan</span>
+              </div>
+            </div>
 
             <div className="bg-[#111e32]/80 backdrop-blur-md rounded-[2.5rem] border border-slate-800 shadow-2xl overflow-hidden">
               
-              {/* Form Header */}
-              <div className="bg-[#1a2c46] p-8 border-b border-slate-800 flex justify-between items-center">
+              {/* Summary Header */}
+              <div className="bg-[#1a2c46] p-8 border-b border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                  <h2 className="text-2xl font-bold text-white tracking-tight">Policy Application</h2>
-                  <p className="text-slate-400 text-sm mt-1">Finalize your request for <span className="text-blue-400 font-semibold">{policy.plan_name}</span></p>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">{policy.plan_name}</h2>
+                  <p className="text-slate-400 text-sm mt-1 flex items-center gap-2">
+                    Application for <span className="text-white underline decoration-blue-500">{userEmail}</span>
+                  </p>
                 </div>
-                <div className="text-right">
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Selected Plan Cost</p>
-                  <p className="text-2xl font-black text-emerald-400">${policy.premium_amount}<span className="text-sm text-slate-500">/yr</span></p>
+                <div className="flex gap-6">
+                  <div className="text-right">
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Premium</p>
+                    <p className="text-xl font-black text-emerald-400">${policy.premium_amount}<span className="text-xs text-slate-500 font-normal">/yr</span></p>
+                  </div>
+                  <div className="text-right border-l border-slate-700 pl-6">
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Tenure</p>
+                    <p className="text-xl font-black text-white">{policy.tenure}<span className="text-xs text-slate-500 font-normal"> Yrs</span></p>
+                  </div>
                 </div>
               </div>
 
               <form onSubmit={handleSubmit} className="p-8 space-y-8">
                 
-                {/* Section: Applicant Details */}
+                {/* Applicant Data */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-1">
-                    <label className={labelStyle}><User size={12} /> Full Name</label>
-                    <input name="full_name" placeholder="John Doe" onChange={handleChange} required className={inputStyle} />
+                  <div className="space-y-1 md:col-span-2 lg:col-span-1">
+                    <label className={labelStyle}><User size={12} /> Full Legal Name</label>
+                    <input name="full_name" placeholder="As per ID Proof" onChange={handleChange} required className={inputStyle} />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className={labelStyle}>Age</label>
-                      <input name="age" type="number" placeholder="25" onChange={handleChange} required className={inputStyle} />
+                      <label className={labelStyle}><Calendar size={12} /> Age</label>
+                      <input name="age" type="number" placeholder="18+" onChange={handleChange} required className={inputStyle} />
                     </div>
                     <div className="space-y-1">
                       <label className={labelStyle}><Wallet size={12} /> Annual Income</label>
-                      <input name="annual_income" type="number" placeholder="50000" onChange={handleChange} required className={inputStyle} />
+                      <input name="annual_income" type="number" placeholder="$" onChange={handleChange} required className={inputStyle} />
                     </div>
                   </div>
                   <div className="space-y-1">
                     <label className={labelStyle}><Briefcase size={12} /> Occupation</label>
                     <select name="occupation" onChange={handleChange} required className={inputStyle}>
                       <option value="">Select Occupation</option>
-                      <option>Salaried</option>
-                      <option>Self-Employed</option>
-                      <option>Business</option>
-                      <option>Student</option>
+                      <option>Salaried Employee</option>
+                      <option>Self-Employed / Business</option>
+                      <option>Government Official</option>
+                      <option>Freelancer / Consultant</option>
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className={labelStyle}>Identity Proof Number (Passport/ID)</label>
-                    <input name="identity_number" placeholder="ABC123456" onChange={handleChange} required className={inputStyle} />
+                    <label className={labelStyle}>Identity Proof (ID/Passport No.)</label>
+                    <input name="identity_number" placeholder="Enter ID Number" onChange={handleChange} required className={inputStyle} />
                   </div>
                 </div>
 
-                {/* Section: Nominee */}
-                <div className="p-6 bg-black/20 rounded-2xl border border-slate-800/50 grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Nominee Block */}
+                <div className="p-6 bg-slate-900/50 rounded-[1.5rem] border border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-1">
-                    <label className={labelStyle}>Nominee Full Name</label>
-                    <input name="nominee_name" placeholder="Jane Doe" onChange={handleChange} required className={inputStyle} />
+                    <label className={labelStyle}>Nominee Name</label>
+                    <input name="nominee_name" placeholder="Beneficiary Name" onChange={handleChange} required className={inputStyle} />
                   </div>
                   <div className="space-y-1">
-                    <label className={labelStyle}>Nominee Relation</label>
-                    <input name="nominee_relation" placeholder="Spouse / Parent" onChange={handleChange} required className={inputStyle} />
+                    <label className={labelStyle}>Relation with Nominee</label>
+                    <input name="nominee_relation" placeholder="e.g., Spouse, Parent" onChange={handleChange} required className={inputStyle} />
                   </div>
                 </div>
 
-                {/* Section: History */}
+                {/* Risk Area */}
                 <div className="space-y-1">
-                  <label className={labelStyle}><Activity size={12} /> Medical History / Risk Disclosure</label>
+                  <label className={labelStyle}><Activity size={12} /> Medical / Risk Disclosure</label>
                   <textarea 
                     name="medical_history" 
-                    placeholder="Briefly describe any pre-existing conditions or mark 'None'..." 
-                    rows="3" 
+                    placeholder="Provide details of any existing medical conditions or hazardous hobbies. Enter 'None' if not applicable." 
+                    rows="4" 
                     onChange={handleChange} 
                     required 
-                    className={inputStyle}
+                    className={`${inputStyle} resize-none`}
                   ></textarea>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex items-center justify-between pt-6 border-t border-slate-800/50">
-                  <div className="flex items-center gap-2 text-slate-500 text-xs">
-                    <ShieldCheck size={16} className="text-blue-500" />
-                    <span>Secure end-to-end encrypted application</span>
-                  </div>
+                {/* Footer / Submit */}
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6 pt-6 border-t border-slate-800/50">
+                  <p className="text-[11px] text-slate-500 leading-tight max-w-sm">
+                    By submitting this application, you confirm that the information provided is accurate and you agree to our terms of service for policy underwriting.
+                  </p>
                   <button 
                     type="submit" 
                     disabled={submitting}
-                    className={`px-10 py-4 rounded-2xl text-white font-bold flex items-center gap-3 transition-all shadow-xl ${
-                      submitting ? "bg-slate-700 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500 active:scale-95 shadow-blue-900/20"
+                    className={`w-full md:w-auto px-12 py-4 rounded-2xl text-white font-bold flex items-center justify-center gap-3 transition-all shadow-xl ${
+                      submitting ? "bg-slate-700 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500 active:scale-95 shadow-blue-900/30"
                     }`}
                   >
-                    {submitting ? "Sending Request..." : <><Send size={18} /> Submit for Approval</>}
+                    {submitting ? "Processing..." : <><Send size={18} /> Send for Approval</>}
                   </button>
                 </div>
               </form>
