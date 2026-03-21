@@ -1,59 +1,121 @@
-from pymongo import MongoClient
-
-client = MongoClient("mongodb://localhost:27017")
-db = client["Insurancedb"]
-
-# Existing Collections
-dealers = db["Dealer_Data"]
-customers = db["Insurance"]
-fraud_logs = db["Fraud_Logs"]
-users = db["Users"]
-policy_requests = db["Policy_Requests"]
-queries = db["Queries"]
-notifications = db["Notifications"]
-audit_logs = db["Audit_Logs"]
-
-# New Collection for Policy Catalog
-policies = db["Policies"]
-
-{
-  "policy_name": "Premium Health Shield",
-  "policy_type": "Health",
-  "coverage_amount": 50000,
-  "premium": 150,
-  "duration": "12 Months",
-  "description": "Comprehensive health coverage including inpatient and outpatient services with zero deductible."
-}
-
-Error: 'list' object can't be awaited
-INFO:     127.0.0.1:59666 - "GET /admin/available-policies HTTP/1.1" 500 Internal Server Error
-Error: 'list' object can't be awaited
-INFO:     127.0.0.1:59666 - "GET /admin/available-policies HTTP/1.1" 500 Internal Server Error
-Error: 'list' object can't be awaited
-INFO:     127.0.0.1:59691 - "GET /admin/available-policies HTTP/1.1" 500 Internal Server Error
-
-
-
-
-
-
+from fastapi import APIRouter, HTTPException
+from database import policy_requests, customers, notifications, audit_logs, queries, dealers, fraud_logs
 from datetime import datetime
-from uuid import uuid4
+from bson import ObjectId
+from fastapi import APIRouter, Response, status
+router = APIRouter()
 
-# --- CUSTOMER: Submit Policy Application ---
-@router.post("/customer/submit-application")
-async def submit_application(data: dict):
-    try:
-        # 1. Add a unique Request ID (for tracking before approval)
-        data["request_id"] = str(uuid4())[:8].upper()
-        data["status"] = "Pending"
-        data["submitted_at"] = datetime.utcnow().isoformat()
+def now():
+    return datetime.utcnow().isoformat()
 
-        # 2. Insert into a NEW collection called 'policy_requests'
-        # Ensure 'policy_requests' is defined in your database.py
-        result = await db.policy_requests.insert_one(data) 
-        
-        return {"message": "Application submitted", "request_id": data["request_id"]}
-    except Exception as e:
-        print(f"Submission Error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save application")
+# -------- POLICY --------
+
+@router.get("/policy-requests")
+def get_requests():
+    return list(policy_requests.find({}, {"_id": 0}))
+
+@router.post("/approve/{policy}")
+def approve(policy: str):
+    req = policy_requests.find_one({"Policy": policy})
+
+    if not req:
+        raise HTTPException(404, "Not found")
+
+    req.pop("_id", None)
+
+    customers.insert_one(req)
+
+    policy_requests.update_one(
+        {"Policy": policy},
+        {"$set": {"status": "Approved"}}
+    )
+
+    notifications.insert_one({
+        "user": req.get("email"),
+        "message": f"Policy {policy} approved",
+        "read": False,
+        "timestamp": now()
+    })
+
+    audit_logs.insert_one({
+        "action": "Approved",
+        "details": policy,
+        "timestamp": now()
+    })
+
+    return {"message": "Approved"}
+
+@router.post("/decline/{policy}")
+def decline(policy: str):
+    policy_requests.update_one(
+        {"Policy": policy},
+        {"$set": {"status": "Declined"}}
+    )
+
+    notifications.insert_one({
+        "message": f"Policy {policy} declined",
+        "read": False,
+        "timestamp": now()
+    })
+
+    return {"message": "Declined"}
+
+# -------- DEALERS --------
+
+@router.post("/admin/dealer/add")
+def add_dealer(data: dict):
+    if not data.get("Policy"):
+        raise HTTPException(400, "Policy required")
+
+    dealers.insert_one(data)
+    return {"message": "Added"}
+
+
+@router.delete("/admin/dealer/delete/{policy}")
+def delete_dealer(policy: str):
+    res = dealers.delete_one({"Policy": policy})
+    if res.deleted_count == 0:
+        # Strict semantics: report not found
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"message": "Deleted"}
+
+
+@router.get("/admin/dealer/logs")
+def logs():
+    return list(fraud_logs.find({}, {"_id": 0}))
+
+# -------- QUERIES --------
+
+@router.get("/queries")
+def get_queries():
+    return list(queries.find())
+
+@router.post("/reply/{id}")
+def reply(id: str, data: dict):
+    queries.update_one(
+        {"_id": ObjectId(id)},
+        {"$set": {"reply": data["reply"], "status": "Answered"}}
+    )
+
+    q = queries.find_one({"_id": ObjectId(id)})
+
+    notifications.insert_one({
+        "user": q.get("email"),
+        "message": "Query answered",
+        "read": False,
+        "timestamp": now()
+    })
+
+    audit_logs.insert_one({
+        "action": "Reply",
+        "details": q.get("email"),
+        "timestamp": now()
+    })
+
+    return {"message": "Replied"}
+
+# -------- AUDIT --------
+
+@router.get("/audit-logs")
+def audit():
+    return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
