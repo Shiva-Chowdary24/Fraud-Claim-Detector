@@ -21,4 +21,15 @@ app.include_router(predict.router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+from bson import ObjectId
+
+@app.delete("/{role}/notifications/erase/{notif_id}")
+def erase_notification(role: str, notif_id: str):
+    try:
+        result = notifications.delete_one({"_id": ObjectId(notif_id)})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Notification not found")
+        return {"message": "Notification erased"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
