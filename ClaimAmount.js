@@ -1,15 +1,16 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 import CustSidebar from "../components/CustSidebar";
 import CustNavbar from "../components/CustNavbar";
 import { AlertCircle, DollarSign, X, ShieldAlert, Loader2 } from "lucide-react";
+import { toast } from "react-toastify";
 
 /** * Reusable Date Input to match your dark theme 
  */
 const DateInput = ({ name, value, onChange, placeholder }) => (
   <div className="flex flex-col gap-1">
-    <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">{placeholder}</label>
+    <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest text-left">{placeholder}</label>
     <input
       type={value ? "date" : "text"}
       name={name}
@@ -53,29 +54,43 @@ function ClaimAmount() {
   };
 
   /**
-   * Main Submission Logic
+   * Main Submission Logic with Automatic Customer ID Injection
    */
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
 
+    // ✅ STEP 1: Get the 6-digit ID automatically from the user's login session
+    const autoID = localStorage.getItem("customer_id");
+
+    // ✅ STEP 2: Create the payload with the auto-injected ID
+    const payload = {
+      ...form, 
+      customer_id: autoID // Automatic injection for backend Fraud_Logs
+    };
+
     try {
       // 1. Send data to Fraud Prediction Model
-      const res = await API.post("/predict", form);
+      const res = await API.post("/predict", payload);
       
+      console.log("Prediction Success:", res.data);
+
       // ✅ THE CONNECTION LOGIC
-      // If FraudClass is 0, we navigate and "pass" the approved state
-      if (res.data.fraud_prediction === 0 || res.data.fraudclass === 0) {
+      // If Fraud Prediction is 0 (Safe)
+      if (res.data.fraud_prediction === 0) {
+        toast.success("AI Analysis: Claim Verified");
         navigate("/customer/predict-claim", { 
           state: { autoApproved: true } 
         });
       } 
-      // If FraudClass is 1, we stay here and show the Suspicious Alert
+      // If Fraud Prediction is 1 (Suspicious)
       else {
         setIsSuspicious(true);
+        toast.warning("Risk Flagged: Awaiting Admin Review");
       }
     } catch (err) {
       console.error("Verification Engine Failure", err);
+      toast.error("Error linking Customer ID to Fraud Log");
     } finally {
       setSubmitting(false);
     }
@@ -97,11 +112,9 @@ function ClaimAmount() {
             {isSuspicious ? (
               /* --- SUSPICIOUS ALERT VIEW --- */
               <div className="bg-black border border-white p-16 relative animate-in zoom-in duration-300">
-                {/* Cross Mark to return to normal page */}
                 <button 
                   onClick={() => setIsSuspicious(false)} 
                   className="absolute top-4 right-4 border border-white p-2 hover:bg-white hover:text-black transition-all"
-                  title="Close Alert"
                 >
                   <X size={24} />
                 </button>
@@ -112,7 +125,7 @@ function ClaimAmount() {
                     <h2 className="text-3xl font-black uppercase text-red-500 tracking-tighter">Security Alert</h2>
                     <div className="p-6 border border-red-500 bg-red-500/5">
                       <p className="text-lg uppercase font-bold text-white italic">It seems that your claim is suspicious.</p>
-                      <p className="text-[10px] text-gray-400 mt-3 uppercase tracking-[0.3em] font-bold">
+                      <p className="text-[10px] text-gray-400 mt-3 uppercase tracking-[0.3em] font-bold text-center">
                         Please wait until admin reviews the claim.
                       </p>
                     </div>
@@ -124,43 +137,39 @@ function ClaimAmount() {
               /* --- DATA ENTRY FORM VIEW --- */
               <div className="bg-[#111e32] border border-white shadow-2xl">
                 <div className="bg-[#1a2c46] p-6 text-white flex items-center gap-4 border-b border-white">
-                  <div className="bg-black p-3 border border-gray-700">
+                  <div className="bg-black p-3 border border-gray-700 text-left">
                     <DollarSign className="text-blue-400" size={24} />
                   </div>
-                  <div>
+                  <div className="text-left">
                     <h2 className="text-xl font-bold uppercase tracking-widest">Policy Claim Request</h2>
                     <p className="text-[10px] text-slate-400 uppercase">Input all relevant metrics for AI verification.</p>
                   </div>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                <form onSubmit={handleSubmit} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 text-left">
                   
-                  {/* Basic Identifiers */}
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Policy ID</label>
                     <input type="text" name="Policy_id" placeholder="Enter ID" onChange={handleChange} value={form.Policy_id} className={inputClass} required />
                   </div>
 
-                  {/* Dates */}
                   <DateInput name="policy_start_date" value={form.policy_start_date} onChange={handleChange} placeholder="Policy Start Date" />
                   <DateInput name="incident_date" value={form.incident_date} onChange={handleChange} placeholder="Incident Occurrence" />
                   <DateInput name="report_date" value={form.report_date} onChange={handleChange} placeholder="Official Report Date" />
                   
-                  {/* Financials */}
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-1 text-left">
                     <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Annual Premium</label>
                     <input type="number" name="annual_premium" placeholder="0.00" required onChange={handleChange} value={form.annual_premium} className={inputClass} />
                   </div>
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-1 text-left">
                     <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Deductible</label>
                     <input type="number" name="deductible" placeholder="0.00" required onChange={handleChange} value={form.deductible} className={inputClass} />
                   </div>
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-1 text-left">
                     <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Requested Claim Amount</label>
                     <input type="number" name="claim_amount" placeholder="0.00" required onChange={handleChange} value={form.claim_amount} className={inputClass} />
                   </div>
                   
-                  {/* Selectors */}
                   <select name="payment_method" required onChange={handleChange} value={form.payment_method} className={selectClass}>
                     <option value="">Payment Method</option>
                     <option>Cash</option><option>Crypto</option><option>Bank Transfer</option>
@@ -181,7 +190,7 @@ function ClaimAmount() {
                     <option>None</option><option>Normal</option><option>Critical</option><option>Major</option>
                   </select>
 
-                  <div className="flex flex-col gap-1 md:col-span-2">
+                  <div className="flex flex-col gap-1 md:col-span-2 text-left">
                     <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Number of Prior Claims</label>
                     <input type="number" name="num_prior_claims" placeholder="0" required onChange={handleChange} value={form.num_prior_claims} className={inputClass} />
                   </div>
@@ -211,9 +220,10 @@ function ClaimAmount() {
   );
 }
 
-// Arrow icon for the button
 const ArrowRight = ({ size, className }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M5 12h14M12 5l7 7-7 7"/>
+  </svg>
 );
 
 export default ClaimAmount;
