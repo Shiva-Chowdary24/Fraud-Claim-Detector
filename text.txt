@@ -17,7 +17,7 @@ except Exception as e:
     payout_model = None
 
 
-# --- FULL SCHEMA ---
+# --- SCHEMA ---
 class PayoutRequest(BaseModel):
     policy_id: str
     customer_id: str
@@ -40,16 +40,17 @@ class PayoutRequest(BaseModel):
     gender: str
 
 
-# --- PREDICTION API ---
+# --- API ---
 @router.post("/predict-health")
 def predict_health(data: PayoutRequest):
 
+    # ✅ inside function
     if not payout_model:
         raise HTTPException(status_code=500, detail="Model not loaded")
 
     try:
-        # 1️⃣ Convert request to dict
-        input_data = data.model_dump()   # or data.dict()
+        # 1️⃣ Convert to dict
+        input_data = data.model_dump()
 
         # 2️⃣ Remove non-model fields
         features = {
@@ -60,7 +61,7 @@ def predict_health(data: PayoutRequest):
         # 3️⃣ Convert to DataFrame
         df = pd.DataFrame([features])
 
-        # 4️⃣ Align with model features (VERY IMPORTANT)
+        # 4️⃣ Align columns
         required_cols = payout_model.named_steps["prep"].feature_names_in_
 
         for col in required_cols:
