@@ -1,11 +1,32 @@
-2026-03-22 18:04:42,799 | INFO | predict | [PREDICT][69bfe1e214e12cdaaab692aa] proba=0.767403 threshold=0.680891 pred=1 policy=POLD-300A-0012
-INFO:     127.0.0.1:57048 - "POST /predict HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62867 - "POST /admin/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62867 - "GET /admin/notifications?recipient_id=ADMIN HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62867 - "GET /admin/notifications?recipient_id=ADMIN HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62867 - "GET /admin/logs HTTP/1.1" 200 OK
-Updating POLD-300A-0012 to Approved
-INFO:     127.0.0.1:62867 - "POST /admin/logs/update-status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62867 - "GET /admin/logs HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55232 - "GET /admin/notifications?recipient_id=ADMIN HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50980 - "GET /admin/notifications?recipient_id=ADMIN HTTP/1.1" 200 OK
+@router.post("/predict")
+def predict_claim(data: dict): # Assuming data comes as a dictionary
+    try:
+        # 1. Get the Policy ID and Customer ID from the request
+        policy_id = data.get("policy_id")
+        customer_id = data.get("customer_id") # <--- ADD THIS LINE
+        
+        # ... Your AI Model Logic (proba = model.predict...) ...
+        proba = 0.76  # Example probability
+        prediction = 1 if proba > 0.5 else 0
+
+        if prediction == 1:
+            # 2. SAVE TO FRAUD_LOGS
+            fraud_entry = {
+                "Policy_id": policy_id,
+                "customer_id": str(customer_id), # ✅ CRITICAL: Store the ID here
+                "probability": proba,
+                "status": "Pending",
+                "reasons": "AI flagged: High risk score",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            # ✅ No 'await' if using PyMongo
+            fraud_logs.insert_one(fraud_entry) 
+            
+            print(f"Suspicious claim logged for Customer: {customer_id}")
+            
+        return {"prediction": prediction, "probability": proba}
+        
+    except Exception as e:
+        print(f"Prediction Error: {e}")
+        raise HTTPException(status_code=500, detail="Prediction failed")
