@@ -1,81 +1,52 @@
-import random
-from datetime import datetime
-from bson import ObjectId
-from fastapi import APIRouter, HTTPException, Header
-from database import policy_requests, issued_policies, notifications, audit_logs
-
-router = APIRouter()
-
-# Helper for current timestamp
-def now():
-    return datetime.utcnow().isoformat()
-
 @router.post("/admin/policy-approve/{request_id}")
 def approve(request_id: str, role: str = Header(None)):
-    # 1. Security Check
-    if role != "admin":
-        raise HTTPException(status_code=403, detail="Unauthorized: Admin access required")
+    verify_admin(role)
 
     try:
-        # 2. Fetch the Pending Request
         req = policy_requests.find_one({"_id": ObjectId(request_id)})
         if not req:
-            raise HTTPException(status_code=404, detail="Application not found")
+            raise HTTPException(404, "Application not found")
 
-        # 3. Dynamic Policy ID Generation
-        # Uses Plan Type (Health/Auto) to create the prefix (PL-HEA / PL-AUT)
-        plan_name = req.get("plan_name", "Insurance")
-        plan_type = req.get("plan_type", "GEN") # Fallback to General
-        prefix = plan_type[:3].upper() 
+        # ✅ FETCH FROM MASTER COLLECTION
+        policy_master = db.policies.find_one({
+            "plan_name": req.get("plan_name")
+        })
+
+        if not policy_master:
+            raise HTTPException(404, "Policy not found in master collection")
+
+        plan_name = req.get("plan_name", "POL")
+        prefix = plan_name[:3].upper()
         generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
-        
-        customer_id = req.get("customer_id")
 
-        # 4. Prepare Issued Policy Data
-        # ✅ 'plan_type' and 'total_claim_amount' are included via **req
         issued_data = {
-            **req, 
-            "policy_id": generated_id, 
-            "status": "Active", 
-            "approved_at": now(),
-            "updated_at": now()
-        }
-        
-        # Remove MongoDB internal ID before inserting into new collection
-        issued_data.pop("_id", None) 
+            "policy_id": generated_id,
+            "customer_id": req.get("customer_id"),
 
-        # 5. Database Transactions
-        # Move from 'policy_requests' to 'issued_policies'
+            # from request
+            "plan_name": req.get("plan_name"),
+            "email": req.get("email"),
+
+            # 🔥 from policies collection (FIX)
+            "plan_type": policy_master.get("plan_type"),
+            "premium_amount": policy_master.get("premium_amount"),
+            "total_claim_amount": policy_master.get("total_claim_amount"),
+            "tenure": policy_master.get("tenure"),
+            "description": policy_master.get("description"),
+            "benefits": policy_master.get("benefits"),
+
+            "status": "Active",
+            "approved_at": now()
+        }
+
         issued_policies.insert_one(issued_data)
+
         policy_requests.delete_one({"_id": ObjectId(request_id)})
 
-        # 6. Notify the Customer
-        # Consistently using recipient_id as a string for frontend matching
-        notifications.insert_one({
-            "recipient_id": str(customer_id), 
-            "message": f"🎉 Congratulations! Your {plan_name} policy was APPROVED. Policy ID: {generated_id}",
-            "type": "policy_update",
-            "link": "/customer/issued-policies",
-            "read": False,
-            "timestamp": now()
-        })
-
-        # 7. Log the Audit Trail
-        audit_logs.insert_one({
-            "action": "Policy_Issued",
-            "details": f"Policy {generated_id} ({plan_type}) issued to {req.get('email')}",
-            "admin_role": role,
-            "timestamp": now()
-        })
-
         return {
-            "status": "Success",
-            "message": "Policy successfully issued", 
-            "policy_id": generated_id,
-            "plan_type": plan_type,
-            "coverage": req.get("total_claim_amount")
+            "message": "Approved",
+            "policy_id": generated_id
         }
 
     except Exception as e:
-        print(f"🔥 Approval Error: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error during approval")
+        raise HTTPException(500, f"Error: {str(e)}")
