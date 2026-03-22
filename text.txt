@@ -1,19 +1,9 @@
-"policy_id": "POL_APPROVE_003",
-  "age": 41,
-  "policy_tenure_years": 6.8,
-  "prior_claims_count": 0,
-  "incident_severity": "Low",
-  "region_risk_level": "Low",
-  "bmi": 24.6,
-  "bloodpressure": 72,
-  "diabetes": 0,
-  "hereditary_diseases": "NoDisease",
-  "smoker": 0,
-  "regular_ex": 1,
-  "weight": 70,
-  "health_risk_score": 1,
-  "policy_coverage_details": "Individual",
-  "sum_assured": 1000000,
-  "premium_amount": 42000,
-  "payment_frequency": "Annual",
-  "gender": "Female"
+return {
+        "plan_name": policy["plan_name"],
+        "premium": policy["premium_amount"],          # ✅ FIX
+        "sum_assured": policy["total_claim_amount"],  # ✅ FIX
+        "tenure": policy["tenure"],
+        "plan_type": policy["plan_type"],
+        "description": policy["description"],
+        "benefits": policy["benefits"]
+    }
