@@ -1,82 +1,14 @@
-#!/usr/bin/env python3
-import os
-import hashlib
-import binascii
-import random
-import string
-from datetime import datetime
-from pymongo import MongoClient
+@router.post("/admin/login")
+def login(req: AuthRequest):
+    user = users.find_one({"email": req.email, "role": "admin"})
 
-# -----------------------------
-# MongoDB Connection
-# -----------------------------
-MONGO_URL = "mongodb://localhost:27017"
-DB_NAME = "Insurancedb"
-COLL_NAME = "Users"
+    if not user or not verify_password(req.password, user["salt"], user["password"]):
+        raise HTTPException(401, "Invalid credentials")
 
-client = MongoClient(MONGO_URL)
-db = client[DB_NAME]
-users = db[COLL_NAME]
-
-# -----------------------------
-# Helpers
-# -----------------------------
-def hash_password(password: str, iterations: int = 100_000) -> tuple[str, str]:
-    """
-    Returns (salt_hex, hash_hex) using PBKDF2-HMAC-SHA256.
-    Keeps 100,000 iterations to align with your customer logic.
-    """
-    if not password:
-        raise ValueError("Password cannot be empty.")
-    salt = os.urandom(16)  # 128-bit salt
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
-    return binascii.hexlify(salt).decode("ascii"), binascii.hexlify(dk).decode("ascii")
-
-def generate_admin_id() -> str:
-    """
-    Generate unique Admin ID: 'A' + 6 digits (e.g., A123456).
-    """
-    while True:
-        num = random.randint(100000, 999999)
-        aid = f"A{num}"
-        if not users.find_one({"admin_id": aid}):
-            return aid
-
-def iso_now() -> str:
-    return datetime.utcnow().isoformat()
-
-# -----------------------------
-# Main: Ask for Admin Name, Email, Password
-# -----------------------------
-if __name__ == "__main__":
-    full_name = input("Enter Admin full name: ").strip()
-    if not full_name:
-        raise SystemExit("Admin name is required.")
-
-    email = input("Enter Admin email id: ").strip()
-    if not email:
-        raise SystemExit("Admin email is required.")
-
-    # Basic duplicate check on email
-    if users.find_one({"email": email}):
-        raise SystemExit("An account with this email already exists.")
-
-    password = input("Enter Admin password: ").strip()
-    if not password:
-        raise SystemExit("Admin password is required.")
-
-    admin_id = generate_admin_id()
-    salt_hex, hash_hex = hash_password(password, iterations=100_000)
-
-    admin_doc = {
-        "admin_id": admin_id,         # A + 6 digits
-        "full_name": full_name,
-        "email": email,
-        "password": hash_hex,         # PBKDF2-HMAC-SHA256 (hex)
-        "salt": salt_hex,             # random salt (hex)
-        "role": "admin",
-        "created_at": iso_now()
+    # Returning both the ID and the Full Name
+    return {
+        "message": "Login success", 
+        "email": req.email, 
+        "admin_id": user.get("admin_id"),
+        "full_name": user.get("full_name") 
     }
-
-    res = users.insert_one(admin_doc)
-
