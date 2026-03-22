@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Bell, UserCircle, LogOut, Shield } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Notifications from "../components/Notifications";
-import API from "../api"; // ✅ Use your custom API instance for consistency
+import API from "../services/api";
 
 function CustNavbar() {
   const navigate = useNavigate();
