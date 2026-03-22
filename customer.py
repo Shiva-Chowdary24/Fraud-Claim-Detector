@@ -97,3 +97,22 @@ def get_issued_policies(email: str):
     for r in results:
         r["_id"] = str(r["_id"])
     return results
+@router.get("/customer/claim-history/{customer_id}")
+def get_claim_history(customer_id: str):
+    try:
+        # We fetch only processed claims (Approved/Declined) 
+        # for the specific logged-in customer
+        query = {
+            "customer_id": str(customer_id),
+            "status": {"$in": ["Approved", "Declined"]}
+        }
+        
+        # .sort("updated_at", -1) ensures the newest decisions are at the top
+        results = list(db.fraud_logs.find(query).sort("updated_at", -1))
+        
+        for r in results:
+            r["_id"] = str(r["_id"]) # Convert MongoDB ID to string for React
+            
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
