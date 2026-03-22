@@ -1,90 +1,125 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from bson import ObjectId
+from fastapi import APIRouter, HTTPException, Header
+from database import policy_requests, issued_policies, notifications, audit_logs, queries,fraud_logs
 from datetime import datetime
+from bson import ObjectId
+import random
 from pydantic import BaseModel
-# Assuming 'notifications' is your MongoDB collection object from database.py
-from database import notifications  
 
-app = FastAPI()
+router = APIRouter()
 
-# ✅ UPDATED CORS: Added 'recipient_id' to headers if you use it for auth
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["role", "Content-Type", "Authorization"],
-    expose_headers=["role"]
-)
+def now():
+    return datetime.utcnow().isoformat()
 
-# --- MODELS ---
+# ✅ HELPER: Security Gatekeeper
+def verify_admin(role: str):
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Unauthorized: Admin access required.")
 
-class NotificationModel(BaseModel):
-    recipient_id: str  # Changed from recipient_email to match your Frontend 'Clear All' logic
-    message: str
-    link: str
+# -------- POLICY APPROVALS --------
+
+@router.get("/admin/policy-requests")
+def get_requests(role: str = Header(None)): # 👈 Role checked here
+    verify_admin(role)
+    try:
+        results = list(policy_requests.find({"status": "Pending"}))
+        for r in results:
+            r["_id"] = str(r["_id"]) 
+        return results
+    except Exception as e:
+        raise HTTPException(500, f"Error: {str(e)}")
+
+@router.post("/admin/policy-approve/{request_id}")
+def approve(request_id: str, role: str = Header(None)):
+    verify_admin(role)
+    try:
+        req = policy_requests.find_one({"_id": ObjectId(request_id)})
+        if not req:
+            raise HTTPException(404, "Application not found")
+
+        plan_name = req.get("plan_name", "POL")
+        prefix = plan_name[:3].upper()
+        generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
+        customer_id = req.get("customer_id")
+
+        issued_data = {**req, "policy_id": generated_id, "status": "Active", "approved_at": now()}
+        issued_data.pop("_id", None) 
+
+        issued_policies.insert_one(issued_data)
+        policy_requests.delete_one({"_id": ObjectId(request_id)})
+
+        # Notify Customer
+        notifications.insert_one({
+            "recipient_id": customer_id,
+            "message": f"Your {plan_name} policy was APPROVED! ID: {generated_id}",
+            "type": "policy_update",
+            "link": "/customer/policy-history",
+            "read": False,
+            "timestamp": now()
+        })
+
+        # Log Action
+        audit_logs.insert_one({
+            "action": "Approved",
+            "details": f"Policy {generated_id} issued to {req.get('email')}",
+            "timestamp": now()
+        })
+
+        return {"message": "Approved", "policy_id": generated_id}
+    except Exception as e:
+        raise HTTPException(500, "Internal Error")
+
+@router.post("/admin/policy-decline/{request_id}")
+def decline(request_id: str, role: str = Header(None)):
+    verify_admin(role)
+    try:
+        policy_requests.update_one(
+            {"_id": ObjectId(request_id)},
+            {"$set": {"status": "Declined", "declined_at": now()}}
+        )
+        return {"message": "Declined"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+# -------- QUERIES, AUDIT & NOTIFICATIONS --------
+
+@router.get("/admin/queries")
+def get_queries(role: str = Header(None)):
+    verify_admin(role)
+    results = list(queries.find())
+    for r in results:
+        r["_id"] = str(r["_id"])
+    return results
+
+@router.get("/admin/audit-logs")
+def audit(role: str = Header(None)):
+    verify_admin(role)
+    return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
+
+@router.get("/admin/logs")
+def audit(role: str = Header(None)):
+    verify_admin(role)
+    return list(fraud_logs.find({}, {"_id": 0}).sort("timestamp", -1))
+
+@router.get("/admin/notifications")
+def get_admin_notifications(role: str = Header(None)):
+    verify_admin(role)
+    notifs = list(notifications.find({"recipient_id": "ADMIN"}).sort("timestamp", -1))
+    for n in notifs:
+        n["_id"] = str(n["_id"])
+    return notifs
+# 1. Define the model
+class StatusUpdate(BaseModel):
+    Policy_id: str
     status: str
 
-# --- ROUTES ---
-
-# 1. Add Notification (The Sender)
-@app.post("/notifications/add")
-async def add_notification(notif: NotificationModel):
+# 2. Update the function signature 
+# Change 'data' to use the 'StatusUpdate' type
+@router.post("/admin/logs/update-status")
+async def update_log_status(data: StatusUpdate):  # <--- MUST use the Class name here
     try:
-        # ✅ FIX: Actually insert into MongoDB
-        new_notif = notif.dict()
-        new_notif["timestamp"] = datetime.utcnow().isoformat() # ISO format for JS compatibility
-        
-        result = notifications.insert_one(new_notif)
-        
-        return {"message": "Notification stored", "id": str(result.inserted_id)}
-    except Exception as e:
-        print(f"Insert Error: {e}")
-        raise HTTPException(status_code=500, detail="Database failure")
-
-# 2. Erase a single notification (The 'Click to Action')
-@app.delete("/{role}/notifications/erase/{notif_id}")
-def erase_notification(role: str, notif_id: str):
-    try:
-        if not ObjectId.is_valid(notif_id):
-            raise HTTPException(status_code=400, detail="Invalid ID format")
-
-        result = notifications.delete_one({"_id": ObjectId(notif_id)})
-        
-        if result.deleted_count == 0:
-            return {"message": "Already erased"} # Avoid 404 to prevent frontend crashes
-            
-        return {"message": "Notification erased"}
+        # Now 'data' is an object. Access fields like data.Policy_id
+        print(f"Updating {data.Policy_id} to {data.status}")
+        return {"message": "Success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# 3. Clear all (The 'Trash' icon)
-@app.delete("/{role}/notifications/clear-all")
-def clear_all_notifications(role: str, recipient_id: str):
-    try:
-        # ✅ SYNC: This now matches the recipient_id key used in /add
-        result = notifications.delete_many({"recipient_id": recipient_id})
-        return {"message": "Inbox cleared", "count": result.deleted_count}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to clear inbox")
-
-# 4. Fetch Notifications (The 'Bell' icon needs this!)
-@app.get("/notifications/get/{recipient_id}")
-async def get_notifications(recipient_id: str):
-    try:
-        # Fetch last 20 notifications
-        cursor = notifications.find({"recipient_id": recipient_id}).sort("_id", -1).limit(20)
-        results = []
-        for doc in await cursor.to_list(length=20): # Use await if using Motor
-            doc["_id"] = str(doc["_id"]) # Convert ObjectId to string for JSON
-            results.append(doc)
-        return results
-    except Exception as e:
-        # Fallback if your database object is not async
-        cursor = notifications.find({"recipient_id": recipient_id}).sort("_id", -1).limit(20)
-        results = []
-        for doc in list(cursor):
-            doc["_id"] = str(doc["_id"])
-            results.append(doc)
-        return results
