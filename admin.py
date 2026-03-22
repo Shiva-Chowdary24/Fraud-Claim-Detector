@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Header
-from database import policy_requests, issued_policies, notifications, audit_logs, queries,fraud_logs
+from database import policy_requests, issued_policies, notifications, audit_logs, queries, fraud_logs
 from datetime import datetime
 from bson import ObjectId
 import random
@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 router = APIRouter()
 
+# ✅ HELPER: Using utcnow() is good, but ensure datetime is imported
 def now():
     return datetime.utcnow().isoformat()
 
@@ -18,7 +19,7 @@ def verify_admin(role: str):
 # -------- POLICY APPROVALS --------
 
 @router.get("/admin/policy-requests")
-def get_requests(role: str = Header(None)): # 👈 Role checked here
+def get_requests(role: str = Header(None)):
     verify_admin(role)
     try:
         results = list(policy_requests.find({"status": "Pending"}))
@@ -47,9 +48,9 @@ def approve(request_id: str, role: str = Header(None)):
         issued_policies.insert_one(issued_data)
         policy_requests.delete_one({"_id": ObjectId(request_id)})
 
-        # Notify Customer
+        # ✅ FIXED: Ensuring "read" and "recipient_id" are consistent
         notifications.insert_one({
-            "recipient_id": customer_id,
+            "recipient_id": str(customer_id), # Ensure string
             "message": f"Your {plan_name} policy was APPROVED! ID: {generated_id}",
             "type": "policy_update",
             "link": "/customer/policy-history",
@@ -57,7 +58,6 @@ def approve(request_id: str, role: str = Header(None)):
             "timestamp": now()
         })
 
-        # Log Action
         audit_logs.insert_one({
             "action": "Approved",
             "details": f"Policy {generated_id} issued to {req.get('email')}",
@@ -67,18 +67,6 @@ def approve(request_id: str, role: str = Header(None)):
         return {"message": "Approved", "policy_id": generated_id}
     except Exception as e:
         raise HTTPException(500, "Internal Error")
-
-@router.post("/admin/policy-decline/{request_id}")
-def decline(request_id: str, role: str = Header(None)):
-    verify_admin(role)
-    try:
-        policy_requests.update_one(
-            {"_id": ObjectId(request_id)},
-            {"$set": {"status": "Declined", "declined_at": now()}}
-        )
-        return {"message": "Declined"}
-    except Exception as e:
-        raise HTTPException(500, str(e))
 
 # -------- QUERIES, AUDIT & NOTIFICATIONS --------
 
@@ -90,14 +78,18 @@ def get_queries(role: str = Header(None)):
         r["_id"] = str(r["_id"])
     return results
 
+# ✅ FIXED: Renamed this function to 'get_audit_logs' to avoid duplicate name 'audit'
 @router.get("/admin/audit-logs")
-def audit(role: str = Header(None)):
+def get_audit_logs(role: str = Header(None)):
     verify_admin(role)
     return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
 
+# ✅ FIXED: Renamed this function to 'get_fraud_logs' to avoid duplicate name 'audit'
 @router.get("/admin/logs")
-def audit(role: str = Header(None)):
+def get_fraud_logs(role: str = Header(None)):
     verify_admin(role)
+    # CRITICAL: If you want notifications to work, the logs in fraud_logs 
+    # MUST contain the 'customer_id' field.
     return list(fraud_logs.find({}, {"_id": 0}).sort("timestamp", -1))
 
 @router.get("/admin/notifications")
@@ -107,19 +99,24 @@ def get_admin_notifications(role: str = Header(None)):
     for n in notifs:
         n["_id"] = str(n["_id"])
     return notifs
-# 1. Define the model
+
+# -------- LOG STATUS UPDATES --------
+
 class StatusUpdate(BaseModel):
     Policy_id: str
     status: str
 
-# 2. Update the function signature 
-# Change 'data' to use the 'StatusUpdate' type
 @router.post("/admin/logs/update-status")
-async def update_log_status(data: StatusUpdate):  # <--- MUST use the Class name here
+def update_log_status(data: StatusUpdate, role: str = Header(None)): # ✅ Removed 'async' for PyMongo
+    verify_admin(role) # Added security check
     try:
-        # Now 'data' is an object. Access fields like data.Policy_id
+        # ✅ REAL LOGIC: Update the actual claim/fraud log in DB
+        result = fraud_logs.update_one(
+            {"Policy_id": data.Policy_id},
+            {"$set": {"status": data.status, "updated_at": now()}}
+        )
+        
         print(f"Updating {data.Policy_id} to {data.status}")
-        return {"message": "Success"}
+        return {"message": "Success", "modified_count": result.modified_count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
