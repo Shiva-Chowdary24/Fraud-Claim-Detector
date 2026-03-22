@@ -1,7 +1,8 @@
 import joblib
 import os
+import pandas as pd
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Extra
 from typing import Optional
 
 router = APIRouter(tags=["Payout Estimation"])
@@ -9,35 +10,62 @@ router = APIRouter(tags=["Payout Estimation"])
 # --- LOAD PAYOUT MODEL ---
 PAYOUT_MODEL_PATH = os.path.join("artifacts", "payout_model.joblib")
 try:
-    # Load the specific model for calculating the dollar amount
     payout_model = joblib.load(PAYOUT_MODEL_PATH)
-    print("✅ Payout Estimation Model Loaded")
+    print("✅ Health Payout Model Loaded")
 except Exception as e:
     print(f"⚠️ Payout Model not found: {e}")
     payout_model = None
 
+# --- UPDATED SCHEMA (NO HARDCODED DEFAULTS) ---
 class PayoutRequest(BaseModel):
     policy_id: str
-    customer_id: str
-    claim_amount: float
-    vehicle_age: Optional[int] = 0
-    vehicle_tier: Optional[str] = "Economy"
-    # Add other health/auto fields your model needs
+    customer_id: str  # ✅ Now strictly required from user input
+    claim_amount: float # ✅ Now strictly required from user input
+    
+    # Health Specific Fields
+    age: int
+    policy_tenure_years: float
+    prior_claims_count: int
+    incident_severity: str
+    region_risk_level: str
+    bmi: float
+    bloodpressure: int
+    diabetes: int
+    hereditary_diseases: str
+    smoker: int
+    regular_ex: int
+    weight: int
+    health_risk_score: int
+    policy_coverage_details: str
+    sum_assured: float
+    premium_amount: float
+    payment_frequency: str
+    gender: str
+
+    class Config:
+        extra = Extra.ignore 
 
 @router.post("/calculate-payout")
 def calculate_payout(data: PayoutRequest):
     if not payout_model:
-        # Fallback logic if the model isn't ready
-        # Calculate 90% of claim_amount as a safe estimate
-        estimated_amount = round(data.claim_amount * 0.9, 2)
+        # Fallback calculation
+        estimated_amount = round(data.claim_amount * 0.85, 2)
         return {"amount": estimated_amount, "status": "Estimated (Fallback)"}
 
     try:
-        # 1. Convert PayoutRequest to the format your model expects (DataFrame/List)
-        features = [[data.claim_amount, data.vehicle_age]] # Example features
+        # 1. Convert to DataFrame
+        input_dict = data.dict()
         
-        # 2. Predict the numerical amount
-        prediction = payout_model.predict(features)
+        # 2. Filter features: Remove only 'policy_id' and 'customer_id' 
+        # if they were NOT part of your model training.
+        # If your model was trained ONLY on the 19 health features, use this:
+        features_for_ai = {k: v for k, v in input_dict.items() 
+                           if k not in ["policy_id", "customer_id", "claim_amount"]}
+        
+        df = pd.DataFrame([features_for_ai])
+
+        # 3. Predict
+        prediction = payout_model.predict(df)
         final_amount = round(float(prediction[0]), 2)
 
         return {
@@ -46,4 +74,5 @@ def calculate_payout(data: PayoutRequest):
             "status": "AI_Calculated"
         }
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Calculation error: {str(e)}")
+        print(f"Internal Error: {e}")
+        raise HTTPException(status_code=400, detail=f"AI Engine Error: {str(e)}")
