@@ -1,14 +1,14 @@
 {
-  "Policy_id": "POL-112233",
-  "policy_start_date": "2015-05-20",
-  "incident_date": "2026-02-01",
-  "report_date": "2026-02-02",
-  "annual_premium": 2500,
-  "deductible": 1000,
-  "claim_amount": 1500,
-  "payment_method": "Bank",
-  "channel": "Online",
-  "police_reported": "Yes",
-  "injury_severity": "None",
-  "num_prior_claims": 0
+  "Policy_id": "POL-998877",
+  "policy_start_date": "2022-01-10",
+  "incident_date": "2026-03-01",
+  "report_date": "2026-03-02",
+  "annual_premium": 1500,
+  "deductible": 500,
+  "claim_amount": 65000,
+  "payment_method": "Cash",
+  "channel": "Agent",
+  "police_reported": "No",
+  "injury_severity": "Major",
+  "num_prior_claims": 4
 }
