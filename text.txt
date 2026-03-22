@@ -1,1 +1,15 @@
-"POST /notifications/add HTTP/1.1" 422 Unprocessable Content
+class Notification(BaseModel):
+    recipient_email: str
+    message: str
+    link: str
+    status: str
+
+# 2. Use the model in the route
+@app.post("/notifications/add")
+async def add_notification(notif: Notification):  # <--- MUST HAVE ': Notification'
+    try:
+        # Your logic to save to MongoDB:
+        # await db.notifications.insert_one(notif.dict())
+        return {"message": "Notification stored"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
