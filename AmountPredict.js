@@ -34,7 +34,6 @@ function AmountPredict() {
     policy_coverage_details: "",
     payment_frequency: "",
     gender: "",
-
     vehicle_type: "",
     vehicle_tier: "",
     vehicle_subtype: ""
@@ -63,9 +62,32 @@ function AmountPredict() {
     }
   };
 
+  // 🔥 VALIDATION FUNCTION
+  const validateHealthForm = () => {
+    const requiredFields = [
+      "age","prior_claims_count","incident_severity","region_risk_level",
+      "bmi","bloodpressure","diabetes","hereditary_diseases",
+      "smoker","regular_ex","weight","health_risk_score",
+      "policy_coverage_details","payment_frequency","gender"
+    ];
+
+    for (let field of requiredFields) {
+      if (formData[field] === "" || formData[field] === null) {
+        toast.error(`Please fill ${field}`);
+        return false;
+      }
+    }
+    return true;
+  };
+
   // 🔥 PREDICT
   const handlePredict = async (e) => {
     e.preventDefault();
+
+    if (policyData.plan_type === "Health") {
+      if (!validateHealthForm()) return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -80,12 +102,14 @@ function AmountPredict() {
       if (policyData.plan_type === "Health") {
         payload = {
           ...payload,
-          age: Number(formData.age),
-          prior_claims_count: Number(formData.prior_claims_count),
+
+          age: parseInt(formData.age),
+          prior_claims_count: parseInt(formData.prior_claims_count),
           incident_severity: formData.incident_severity,
           region_risk_level: formData.region_risk_level,
-          bmi: Number(formData.bmi),
-          bloodpressure: Number(formData.bloodpressure),
+
+          bmi: parseFloat(formData.bmi),
+          bloodpressure: parseInt(formData.bloodpressure),
 
           // ✅ YES/NO → 1/0
           diabetes: Number(formData.diabetes),
@@ -93,12 +117,15 @@ function AmountPredict() {
           regular_ex: Number(formData.regular_ex),
 
           hereditary_diseases: formData.hereditary_diseases,
-          weight: Number(formData.weight),
-          health_risk_score: Number(formData.health_risk_score),
+          weight: parseInt(formData.weight),
+          health_risk_score: parseInt(formData.health_risk_score),
+
           policy_coverage_details: formData.policy_coverage_details,
           payment_frequency: formData.payment_frequency,
           gender: formData.gender
         };
+
+        console.log("FINAL PAYLOAD:", payload);
 
         res = await API.post("/predict-health", payload);
 
@@ -123,7 +150,7 @@ function AmountPredict() {
       }, 4000);
 
     } catch (err) {
-      console.error(err);
+      console.error("ERROR:", err.response?.data || err.message);
       toast.error("Prediction failed");
     } finally {
       setSubmitting(false);
@@ -183,105 +210,68 @@ function AmountPredict() {
                 {policyData && (
                   <form onSubmit={handlePredict} className="space-y-3">
 
-                    {/* HEALTH FORM */}
                     {policyData.plan_type === "Health" && (
                       <>
-                        <input className={inputClass} placeholder="Age"
-                          onChange={(e)=>setFormData({...formData, age:e.target.value})} />
-
-                        <input className={inputClass} placeholder="Prior Claims Count"
-                          onChange={(e)=>setFormData({...formData, prior_claims_count:e.target.value})} />
-
-                        <select className={inputClass}
-                          onChange={(e)=>setFormData({...formData, incident_severity:e.target.value})}>
+                        <input className={inputClass} placeholder="Age" onChange={(e)=>setFormData({...formData, age:e.target.value})}/>
+                        <input className={inputClass} placeholder="Prior Claims Count" onChange={(e)=>setFormData({...formData, prior_claims_count:e.target.value})}/>
+                        
+                        <select className={inputClass} onChange={(e)=>setFormData({...formData, incident_severity:e.target.value})}>
                           <option value="">Incident Severity</option>
                           <option>Low</option>
                           <option>Medium</option>
                           <option>High</option>
                         </select>
 
-                        <select className={inputClass}
-                          onChange={(e)=>setFormData({...formData, region_risk_level:e.target.value})}>
+                        <select className={inputClass} onChange={(e)=>setFormData({...formData, region_risk_level:e.target.value})}>
                           <option value="">Region Risk Level</option>
                           <option>Low</option>
                           <option>Medium</option>
                           <option>High</option>
                         </select>
 
-                        <input className={inputClass} placeholder="BMI"
-                          onChange={(e)=>setFormData({...formData, bmi:e.target.value})} />
+                        <input className={inputClass} placeholder="BMI" onChange={(e)=>setFormData({...formData, bmi:e.target.value})}/>
+                        <input className={inputClass} placeholder="Blood Pressure" onChange={(e)=>setFormData({...formData, bloodpressure:e.target.value})}/>
 
-                        <input className={inputClass} placeholder="Blood Pressure"
-                          onChange={(e)=>setFormData({...formData, bloodpressure:e.target.value})} />
-
-                        <select className={inputClass}
-                          onChange={(e)=>setFormData({...formData, diabetes:e.target.value})}>
+                        <select className={inputClass} onChange={(e)=>setFormData({...formData, diabetes:e.target.value})}>
                           <option value="">Diabetes</option>
                           <option value="1">Yes</option>
                           <option value="0">No</option>
                         </select>
 
-                        <input className={inputClass} placeholder="Hereditary Diseases"
-                          onChange={(e)=>setFormData({...formData, hereditary_diseases:e.target.value})} />
+                        <input className={inputClass} placeholder="Hereditary Diseases" onChange={(e)=>setFormData({...formData, hereditary_diseases:e.target.value})}/>
 
-                        <select className={inputClass}
-                          onChange={(e)=>setFormData({...formData, smoker:e.target.value})}>
+                        <select className={inputClass} onChange={(e)=>setFormData({...formData, smoker:e.target.value})}>
                           <option value="">Smoker</option>
                           <option value="1">Yes</option>
                           <option value="0">No</option>
                         </select>
 
-                        <select className={inputClass}
-                          onChange={(e)=>setFormData({...formData, regular_ex:e.target.value})}>
+                        <select className={inputClass} onChange={(e)=>setFormData({...formData, regular_ex:e.target.value})}>
                           <option value="">Regular Exercise</option>
                           <option value="1">Yes</option>
                           <option value="0">No</option>
                         </select>
 
-                        <input className={inputClass} placeholder="Weight"
-                          onChange={(e)=>setFormData({...formData, weight:e.target.value})} />
+                        <input className={inputClass} placeholder="Weight" onChange={(e)=>setFormData({...formData, weight:e.target.value})}/>
+                        <input className={inputClass} placeholder="Health Risk Score" onChange={(e)=>setFormData({...formData, health_risk_score:e.target.value})}/>
 
-                        <input className={inputClass} placeholder="Health Risk Score"
-                          onChange={(e)=>setFormData({...formData, health_risk_score:e.target.value})} />
-
-                        <select className={inputClass}
-                          onChange={(e)=>setFormData({...formData, policy_coverage_details:e.target.value})}>
+                        <select className={inputClass} onChange={(e)=>setFormData({...formData, policy_coverage_details:e.target.value})}>
                           <option value="">Coverage</option>
                           <option>Individual</option>
                           <option>Family</option>
                         </select>
 
-                        <select className={inputClass}
-                          onChange={(e)=>setFormData({...formData, payment_frequency:e.target.value})}>
+                        <select className={inputClass} onChange={(e)=>setFormData({...formData, payment_frequency:e.target.value})}>
                           <option value="">Payment Frequency</option>
                           <option>Annual</option>
                           <option>Monthly</option>
                         </select>
 
-                        <select className={inputClass}
-                          onChange={(e)=>setFormData({...formData, gender:e.target.value})}>
+                        <select className={inputClass} onChange={(e)=>setFormData({...formData, gender:e.target.value})}>
                           <option value="">Gender</option>
                           <option>Male</option>
                           <option>Female</option>
                         </select>
-                      </>
-                    )}
-
-                    {/* AUTO FORM */}
-                    {policyData.plan_type === "Auto" && (
-                      <>
-                        <select className={inputClass}
-                          onChange={(e)=>setFormData({...formData, vehicle_type:e.target.value})}>
-                          <option value="">Vehicle Type</option>
-                          <option>Car</option>
-                          <option>Bike</option>
-                        </select>
-
-                        <input className={inputClass} placeholder="Vehicle Tier"
-                          onChange={(e)=>setFormData({...formData, vehicle_tier:e.target.value})} />
-
-                        <input className={inputClass} placeholder="Vehicle Subtype"
-                          onChange={(e)=>setFormData({...formData, vehicle_subtype:e.target.value})} />
                       </>
                     )}
 
