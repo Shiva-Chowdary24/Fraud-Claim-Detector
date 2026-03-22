@@ -1,97 +1,77 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, Clock, ChevronRight, Circle, Trash2 } from 'lucide-react';
-import axios from 'axios';
-import { toast } from 'react-toastify'; // Ensure toast is imported
+import API from '../api'; // ✅ Using your custom API instance
+import { toast } from 'react-toastify';
 
 const Notifications = ({ notifications, onClose, role, setNotifications }) => {
   const navigate = useNavigate();
 
-  // 1. Erase a single notification on click
+  // 1. Erase single notification on click
   const handleItemClick = async (notif) => {
-    try {
-      // API call to permanently delete from DB
-      await axios.delete(`http://127.0.0.1:8000/${role}/notifications/erase/${notif._id}`);
-      
-      // Update UI state immediately
-      if (setNotifications) {
-        setNotifications(prev => prev.filter(n => n._id !== notif._id));
-      }
+    // Remove from UI immediately for speed
+    if (setNotifications) {
+      setNotifications(prev => prev.filter(n => n._id !== notif._id));
+    }
 
-      // Redirect to the action page
-      navigate(notif.link);
-      onClose();
+    try {
+      await API.delete(`/${role}/notifications/erase/${notif._id}`);
     } catch (e) {
-      console.log("Error erasing notification");
-      navigate(notif.link); 
+      console.error("Database sync failed");
+    } finally {
+      navigate(notif.link);
       onClose();
     }
   };
 
-  // 2. Erase all notifications for this role/user
+  // 2. Erase all notifications for current user/admin
   const handleClearAll = async () => {
     try {
-      // ✅ 1. Get the correct ID to clear (ADMIN or the 6-digit Customer ID)
       const recipientId = role === "admin" ? "ADMIN" : localStorage.getItem("customer_id");
       
-      // ✅ 2. Tell the Backend to delete everything from the database
-      await axios.delete(`http://127.0.0.1:8000/${role}/notifications/clear-all?recipient_id=${recipientId}`);
+      // Pass recipient_id as query param to match Python @app.delete
+      await API.delete(`/${role}/notifications/clear-all`, {
+        params: { recipient_id: recipientId }
+      });
       
-      // ✅ 3. IMMEDIATELY empty the React state so the UI updates without a refresh
-      if (setNotifications) {
-        setNotifications([]); 
-      }
-      
-      // ✅ 4. Close the dropdown and show success
+      if (setNotifications) setNotifications([]); 
       onClose();
       toast.success("Inbox cleared");
-      
     } catch (e) {
-      console.error("Error clearing notifications:", e);
       toast.error("Failed to clear notifications");
     }
   };
 
   return (
     <div className="absolute right-0 mt-4 w-80 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl z-50 overflow-hidden ring-1 ring-white/10">
-      {/* Header with Clear All Button */}
+      {/* Header */}
       <div className="p-4 bg-slate-800/50 border-b border-slate-800 flex justify-between items-center">
         <h3 className="text-sm font-bold text-white flex items-center gap-2">
           <Bell size={16} className="text-blue-400" /> Notifications
         </h3>
         {notifications.length > 0 && (
-          <button 
-            onClick={handleClearAll}
-            className="text-[10px] text-slate-500 hover:text-red-400 font-bold uppercase tracking-widest transition-colors flex items-center gap-1"
-          >
+          <button onClick={handleClearAll} className="text-[10px] text-slate-500 hover:text-red-400 font-bold uppercase flex items-center gap-1 transition-colors">
             <Trash2 size={10} /> Clear All
           </button>
         )}
       </div>
       
+      {/* List */}
       <div className="max-h-[400px] overflow-y-auto">
         {notifications.length === 0 ? (
-          <div className="p-10 text-center">
-            <Bell size={32} className="mx-auto text-slate-700 mb-2 opacity-20" />
-            <p className="text-xs text-slate-500 font-medium">All caught up!</p>
+          <div className="p-10 text-center text-slate-600">
+            <Bell size={32} className="mx-auto mb-2 opacity-10" />
+            <p className="text-xs">No new alerts</p>
           </div>
         ) : (
           notifications.map((n) => (
-            <div 
-              key={n._id} 
-              onClick={() => handleItemClick(n)}
-              className="p-4 border-b border-white/5 hover:bg-blue-600/10 cursor-pointer transition-all flex items-start gap-3 group text-left"
-            >
-              <div className="mt-1 flex-shrink-0">
-                <Circle size={8} className="fill-blue-500 text-blue-500 animate-pulse" />
-              </div>
-              <div className="flex-1">
-                <p className="text-xs leading-relaxed text-slate-200 font-medium group-hover:text-white transition-colors">
-                  {n.message}
-                </p>
+            <div key={n._id} onClick={() => handleItemClick(n)} className="p-4 border-b border-white/5 hover:bg-blue-600/10 cursor-pointer flex items-start gap-3 group transition-all">
+              <div className="mt-1"><Circle size={8} className="fill-blue-500 text-blue-500 animate-pulse" /></div>
+              <div className="flex-1 text-left">
+                <p className="text-xs text-slate-200 font-medium group-hover:text-white leading-relaxed">{n.message}</p>
                 <div className="flex items-center justify-between mt-2">
-                   <span className="text-[9px] text-slate-600 flex items-center gap-1 uppercase font-bold tracking-widest">
-                     <Clock size={10} /> {new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                   <span className="text-[9px] text-slate-600 flex items-center gap-1 font-bold uppercase tracking-tighter">
+                     <Clock size={10} /> {n.timestamp ? new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
                    </span>
                    <ChevronRight size={12} className="text-slate-600 group-hover:text-blue-400 transition-colors" />
                 </div>
@@ -100,13 +80,6 @@ const Notifications = ({ notifications, onClose, role, setNotifications }) => {
           ))
         )}
       </div>
-
-      {/* Small informative footer */}
-      {notifications.length > 0 && (
-        <div className="p-2 bg-slate-950/30 text-center border-t border-slate-800/50">
-          <p className="text-[8px] text-slate-700 uppercase font-black tracking-tighter">Click to action & erase</p>
-        </div>
-      )}
     </div>
   );
 };
