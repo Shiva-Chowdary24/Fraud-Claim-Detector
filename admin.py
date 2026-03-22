@@ -1,103 +1,78 @@
-from fastapi import APIRouter, HTTPException, Header
-from database import policy_requests, issued_policies, notifications, audit_logs, queries
-from datetime import datetime
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from bson import ObjectId
-import random
+from database import notifications  
+from routes import auth, admin, customer, predict,policy
+from pydantic import BaseModel
 
-router = APIRouter()
+app = FastAPI()
 
-def now():
-    return datetime.utcnow().isoformat()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["role","Content-Type","Authorization"],
+    expose_headers=["role"]
+)
 
-# ✅ HELPER: Security Gatekeeper
-def verify_admin(role: str):
-    if role != "admin":
-        raise HTTPException(status_code=403, detail="Unauthorized: Admin access required.")
+# Include Routers
+app.include_router(auth.router)
+app.include_router(admin.router)
+app.include_router(customer.router)
+app.include_router(predict.router)
+app.include_router(policy.router)
 
-# -------- POLICY APPROVALS --------
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
-@router.get("/admin/policy-requests")
-def get_requests(role: str = Header(None)): # 👈 Role checked here
-    verify_admin(role)
+# --- GLOBAL NOTIFICATION ROUTES ---
+
+# 1. Erase a single notification by ID
+@app.delete("/{role}/notifications/erase/{notif_id}")
+def erase_notification(role: str, notif_id: str):
     try:
-        results = list(policy_requests.find({"status": "Pending"}))
-        for r in results:
-            r["_id"] = str(r["_id"]) 
-        return results
-    except Exception as e:
-        raise HTTPException(500, f"Error: {str(e)}")
+        # Check if the ID is a valid MongoDB ObjectId
+        if not ObjectId.is_valid(notif_id):
+            raise HTTPException(status_code=400, detail="Invalid Notification ID format")
 
-@router.post("/admin/policy-approve/{request_id}")
-def approve(request_id: str, role: str = Header(None)):
-    verify_admin(role)
+        result = notifications.delete_one({"_id": ObjectId(notif_id)})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Notification already erased or not found")
+            
+        return {"message": "Notification erased"}
+    except Exception as e:
+        print(f"Delete Error: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+# 2. Clear all notifications for a specific user or the Admin
+@app.delete("/{role}/notifications/clear-all")
+def clear_all_notifications(role: str, recipient_id: str):
     try:
-        req = policy_requests.find_one({"_id": ObjectId(request_id)})
-        if not req:
-            raise HTTPException(404, "Application not found")
-
-        plan_name = req.get("plan_name", "POL")
-        prefix = plan_name[:3].upper()
-        generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
-        customer_id = req.get("customer_id")
-
-        issued_data = {**req, "policy_id": generated_id, "status": "Active", "approved_at": now()}
-        issued_data.pop("_id", None) 
-
-        issued_policies.insert_one(issued_data)
-        policy_requests.delete_one({"_id": ObjectId(request_id)})
-
-        # Notify Customer
-        notifications.insert_one({
-            "recipient_id": customer_id,
-            "message": f"Your {plan_name} policy was APPROVED! ID: {generated_id}",
-            "type": "policy_update",
-            "link": "/customer/policy-history",
-            "read": False,
-            "timestamp": now()
-        })
-
-        # Log Action
-        audit_logs.insert_one({
-            "action": "Approved",
-            "details": f"Policy {generated_id} issued to {req.get('email')}",
-            "timestamp": now()
-        })
-
-        return {"message": "Approved", "policy_id": generated_id}
+        # This wipes every notification matching the ID (e.g., "ADMIN" or "123456")
+        result = notifications.delete_many({"recipient_id": recipient_id})
+        
+        return {
+            "message": f"Cleared {result.deleted_count} notifications",
+            "count": result.deleted_count
+        }
     except Exception as e:
-        raise HTTPException(500, "Internal Error")
+        print(f"Clear All Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to clear inbox")
+class Notification(BaseModel):
+    recipient_email: str
+    message: str
+    link: str
+    status: str
 
-@router.post("/admin/policy-decline/{request_id}")
-def decline(request_id: str, role: str = Header(None)):
-    verify_admin(role)
+# 2. Use the model in the route
+@app.post("/notifications/add")
+async def add_notification(notif: Notification):  # <--- MUST HAVE ': Notification'
     try:
-        policy_requests.update_one(
-            {"_id": ObjectId(request_id)},
-            {"$set": {"status": "Declined", "declined_at": now()}}
-        )
-        return {"message": "Declined"}
+        # Your logic to save to MongoDB:
+        # await db.notifications.insert_one(notif.dict())
+        return {"message": "Notification stored"}
     except Exception as e:
-        raise HTTPException(500, str(e))
-
-# -------- QUERIES, AUDIT & NOTIFICATIONS --------
-
-@router.get("/admin/queries")
-def get_queries(role: str = Header(None)):
-    verify_admin(role)
-    results = list(queries.find())
-    for r in results:
-        r["_id"] = str(r["_id"])
-    return results
-
-@router.get("/admin/audit-logs")
-def audit(role: str = Header(None)):
-    verify_admin(role)
-    return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
-
-@router.get("/admin/notifications")
-def get_admin_notifications(role: str = Header(None)):
-    verify_admin(role)
-    notifs = list(notifications.find({"recipient_id": "ADMIN"}).sort("timestamp", -1))
-    for n in notifs:
-        n["_id"] = str(n["_id"])
-    return notifs
+        raise HTTPException(status_code=500, detail=str(e))
