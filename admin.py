@@ -32,6 +32,7 @@ def get_requests(role: str = Header(None)):
 @router.post("/admin/policy-approve/{request_id}")
 def approve(request_id: str, role: str = Header(None)):
     verify_admin(role)
+
     try:
         req = policy_requests.find_one({"_id": ObjectId(request_id)})
         if not req:
@@ -42,15 +43,28 @@ def approve(request_id: str, role: str = Header(None)):
         generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
         customer_id = req.get("customer_id")
 
-        issued_data = {**req, "policy_id": generated_id, "status": "Active", "approved_at": now()}
-        issued_data.pop("_id", None) 
+        # ✅ EXPLICITLY ADD REQUIRED FIELDS
+        issued_data = {
+            "policy_id": generated_id,
+            "customer_id": customer_id,
+            "plan_name": req.get("plan_name"),
+            "premium_amount": req.get("premium_amount"),
+            "total_claim_amount": req.get("total_claim_amount"),   # ✅ IMPORTANT
+            "plan_type": req.get("plan_type"),                     # ✅ IMPORTANT
+            "tenure": req.get("tenure"),
+            "description": req.get("description"),
+            "benefits": req.get("benefits"),
+            "status": "Active",
+            "approved_at": now()
+        }
 
         issued_policies.insert_one(issued_data)
+
         policy_requests.delete_one({"_id": ObjectId(request_id)})
 
-        # ✅ FIXED: Ensuring "read" and "recipient_id" are consistent
+        # Notification
         notifications.insert_one({
-            "recipient_id": str(customer_id), # Ensure string
+            "recipient_id": str(customer_id),
             "message": f"Your {plan_name} policy was APPROVED! ID: {generated_id}",
             "type": "policy_update",
             "link": "/customer/policy-history",
@@ -58,6 +72,7 @@ def approve(request_id: str, role: str = Header(None)):
             "timestamp": now()
         })
 
+        # Audit
         audit_logs.insert_one({
             "action": "Approved",
             "details": f"Policy {generated_id} issued to {req.get('email')}",
@@ -65,8 +80,9 @@ def approve(request_id: str, role: str = Header(None)):
         })
 
         return {"message": "Approved", "policy_id": generated_id}
+
     except Exception as e:
-        raise HTTPException(500, "Internal Error")
+        raise HTTPException(500, f"Internal Error: {str(e)}")
 
 # -------- QUERIES, AUDIT & NOTIFICATIONS --------
 
