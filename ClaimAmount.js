@@ -5,6 +5,7 @@ import CustSidebar from "../components/CustSidebar";
 import CustNavbar from "../components/CustNavbar";
 import { AlertCircle, DollarSign, X, ShieldAlert, Loader2 } from "lucide-react";
 
+
 /** Date Input Component */
 const DateInput = ({ name, value, onChange, placeholder }) => (
   <input
