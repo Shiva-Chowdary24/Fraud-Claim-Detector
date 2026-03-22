@@ -1,12 +1,87 @@
+import joblib
+import os
+import pandas as pd
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+router = APIRouter(tags=["Payout Estimation"])
+
+# --- LOAD MODEL ---
+PAYOUT_MODEL_PATH = os.path.join("artifacts", "amount_model.pkl")
+
+try:
+    payout_model = joblib.load(PAYOUT_MODEL_PATH)
+    print("✅ Health Payout Model Loaded")
+except Exception as e:
+    print(f"❌ Model loading failed: {e}")
+    payout_model = None
+
+
+# --- FULL SCHEMA (ALL HEALTH FEATURES REQUIRED) ---
+class PayoutRequest(BaseModel):
+    policy_id: str
+    customer_id: str
+    claim_amount: float
+
+    age: int
+    prior_claims_count: int
+    incident_severity: str
+    region_risk_level: str
+    bmi: float
+    bloodpressure: int
+    diabetes: int
+    hereditary_diseases: str
+    smoker: int
+    regular_ex: int
+    weight: int
+    health_risk_score: int
+    policy_coverage_details: str
+    payment_frequency: str
+    gender: str
+
+
+# --- PREDICTION API ---
 # Get expected columns from trained pipeline
-required_cols = amount_model.named_steps["prep"].feature_names_in_
 
+
+
+# Keep only required columns
+df = df[required_cols]
+@router.post("/predict-health")
+def predict_health(data: PayoutRequest):
+    input_dict=data.dict()
 df = pd.DataFrame([input_dict])
-
+required_cols = payout_model.named_steps["prep"].feature_names_in_
 # Add missing columns
 for col in required_cols:
     if col not in df.columns:
         df[col] = 0
 
-# Keep only required columns
-df = df[required_cols]
+    if not payout_model:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+
+    try:
+        # 1️⃣ Convert to dict
+        input_data = data.dict()
+
+        # 2️⃣ Remove non-ML fields
+        features = {k: v for k, v in input_data.items()
+                    if k not in ["policy_id", "customer_id", "claim_amount"]}
+
+        # 3️⃣ Convert to DataFrame
+        df = pd.DataFrame([features])
+
+        # 4️⃣ Predict
+        prediction = payout_model.predict(df)
+
+        amount = round(float(prediction[0]), 2)
+
+        return {
+            "amount": amount,
+            "policy_id": data.policy_id,
+            "status": "AI_Calculated"
+        }
+
+    except Exception as e:
+        print("ERROR:", e)
+        raise HTTPException(status_code=400, detail=f"Prediction Error: {str(e)}")
