@@ -1,85 +1,34 @@
-import joblib
-import os
-import pandas as pd
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-
-router = APIRouter(tags=["Payout Estimation"])
-
-# --- LOAD MODEL ---
-PAYOUT_MODEL_PATH = os.path.join("artifacts", "amount_model.pkl")
-
-try:
-    payout_model = joblib.load(PAYOUT_MODEL_PATH)
-    print("✅ Health Payout Model Loaded")
-except Exception as e:
-    print(f"❌ Model loading failed: {e}")
-    payout_model = None
-
-
-# --- SCHEMA ---
-class PayoutRequest(BaseModel):
-    policy_id: str
-    customer_id: str
-    claim_amount: float
-
-    age: int
-    prior_claims_count: int
-    incident_severity: str
-    region_risk_level: str
-    bmi: float
-    bloodpressure: int
-    diabetes: int
-    hereditary_diseases: str
-    smoker: int
-    regular_ex: int
-    weight: int
-    health_risk_score: int
-    policy_coverage_details: str
-    payment_frequency: str
-    gender: str
-
-
-# --- API ---
-@router.post("/predict-health")
-def predict_health(data: PayoutRequest):
-
-    # ✅ inside function
-    if not payout_model:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-
-    try:
-        # 1️⃣ Convert to dict
-        input_data = data.model_dump()
-
-        # 2️⃣ Remove non-model fields
-        features = {
-            k: v for k, v in input_data.items()
-            if k not in ["policy_id", "customer_id", "claim_amount"]
-        }
-
-        # 3️⃣ Convert to DataFrame
-        df = pd.DataFrame([features])
-
-        # 4️⃣ Align columns
-        required_cols = payout_model.named_steps["prep"].feature_names_in_
-
-        for col in required_cols:
-            if col not in df.columns:
-                df[col] = 0
-
-        df = df[required_cols]
-
-        # 5️⃣ Predict
-        prediction = payout_model.predict(df)
-        amount = round(float(prediction[0]), 2)
-
-        return {
-            "amount": amount,
-            "policy_id": data.policy_id,
-            "status": "AI_Calculated"
-        }
-
-    except Exception as e:
-        print("ERROR:", e)
-        raise HTTPException(status_code=400, detail=f"Prediction Error: {str(e)}")
+ 2026-03-23 01:37:11,131 | INFO | predict | [STARTUP] Loading model artifacts from C:\Users\manda.shiva\Downloads\fraud_detect\backend\artifacts
+2026-03-23 01:37:12,556 | INFO | predict | [STARTUP] Artifacts loaded. Features: ['insured_age', 'num_prior_claims', 'policy_tenure_months', 'life_sum_assured', 'annual_premium', 'deductible', 'claim_amount', 'days_to_report', 'policy_age_days_at_incident', 'incident_weekday', 'incident_month', 'report_weekday', 'report_month', 'incident_hour', 'claim_to_premium_ratio', 'deductible_to_claim_ratio', 'premium_per_month', 'prior_claim_rate', 'vehicle_age', 'property_age', 'is_new_policy_90d', 'is_late_report_14d', 'is_online', 'is_cash_or_crypto', 'police_reported_flag', 'injury_severe_flag', 'te_policy_type', 'te_coverage_type', 'te_customer_segment', 'te_channel', 'te_payment_method', 'te_geo_region', 'te_property_type', 'te_diagnosis_group', 'te_provider_specialty', 'te_life_product', 'te_vehicle_make', 'te_vehicle_model', 'te_injury_severity', 'te_police_reported']
+✅ Health Payout Model Loaded
+INFO:     Started server process [15108]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:49170 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51087 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50716 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60749 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49170 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51087 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50716 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51658 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55082 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'routes\payout.py'. Reloading...
+ INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [15108]
+2026-03-23 01:38:09,006 | INFO | predict | [STARTUP] Loading model artifacts from C:\Users\manda.shiva\Downloads\fraud_detect\backend\artifacts
+2026-03-23 01:38:10,323 | INFO | predict | [STARTUP] Artifacts loaded. Features: ['insured_age', 'num_prior_claims', 'policy_tenure_months', 'life_sum_assured', 'annual_premium', 'deductible', 'claim_amount', 'days_to_report', 'policy_age_days_at_incident', 'incident_weekday', 'incident_month', 'report_weekday', 'report_month', 'incident_hour', 'claim_to_premium_ratio', 'deductible_to_claim_ratio', 'premium_per_month', 'prior_claim_rate', 'vehicle_age', 'property_age', 'is_new_policy_90d', 'is_late_report_14d', 'is_online', 'is_cash_or_crypto', 'police_reported_flag', 'injury_severe_flag', 'te_policy_type', 'te_coverage_type', 'te_customer_segment', 'te_channel', 'te_payment_method', 'te_geo_region', 'te_property_type', 'te_diagnosis_group', 'te_provider_specialty', 'te_life_product', 'te_vehicle_make', 'te_vehicle_model', 'te_injury_severity', 'te_police_reported']
+✅ Health Payout Model Loaded
+INFO:     Started server process [24344]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
