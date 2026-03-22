@@ -1,32 +1,19 @@
-@router.post("/predict")
-def predict_claim(data: dict): # Assuming data comes as a dictionary
+@router.get("/customer/claim-history/{customer_id}")
+def get_claim_history(customer_id: str):
     try:
-        # 1. Get the Policy ID and Customer ID from the request
-        policy_id = data.get("policy_id")
-        customer_id = data.get("customer_id") # <--- ADD THIS LINE
+        # 3. Fetch all logs for this customer that are NOT 'Pending'
+        # This includes both 'Approved' and 'Declined'
+        query = {
+            "customer_id": customer_id,
+            "status": {"$in": ["Approved", "Declined"]}
+        }
         
-        # ... Your AI Model Logic (proba = model.predict...) ...
-        proba = 0.76  # Example probability
-        prediction = 1 if proba > 0.5 else 0
-
-        if prediction == 1:
-            # 2. SAVE TO FRAUD_LOGS
-            fraud_entry = {
-                "Policy_id": policy_id,
-                "customer_id": str(customer_id), # ✅ CRITICAL: Store the ID here
-                "probability": proba,
-                "status": "Pending",
-                "reasons": "AI flagged: High risk score",
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            
-            # ✅ No 'await' if using PyMongo
-            fraud_logs.insert_one(fraud_entry) 
-            
-            print(f"Suspicious claim logged for Customer: {customer_id}")
-            
-        return {"prediction": prediction, "probability": proba}
+        # Sort by most recent first
+        history = list(db.Fraud_Logs.find(query).sort("timestamp", -1))
         
+        for item in history:
+            item["_id"] = str(item["_id"]) # Convert ObjectId for React
+            
+        return history
     except Exception as e:
-        print(f"Prediction Error: {e}")
-        raise HTTPException(status_code=500, detail="Prediction failed")
+        return []
