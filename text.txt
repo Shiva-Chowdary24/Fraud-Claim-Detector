@@ -1,1 +1,5 @@
 {"detail":[{"type":"json_invalid","loc":["body",11],"msg":"JSON decode error","input":{},"ctx":{"error":"Extra data"}}]}
+1" 422 Unprocessable Content
+
+INFO:     127.0.0.1:62700 - "POST /predict-health HTTP/1.1" 422 Unprocessable Content
+INFO:     127.0.0.1:62700 - "POST /predict-health HTTP/1.INFO:     127.0.0.1:62700 - "POST /predict-health HTTP/1.1" 422 Unprocessable Content
