@@ -1,158 +1,89 @@
 import React, { useState } from "react";
-import API from "../api";
-import { ShieldCheck, ArrowRight, X, Calculator, Search, AlertTriangle, Loader2, ShieldAlert } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import API from "../services/api";
+import { ShieldCheck, ArrowRight, X, Calculator, Loader2, Zap } from "lucide-react";
 
 function ClaimAmountPage() {
-  const [view, setView] = useState("initial"); 
-  const [formData, setFormData] = useState({ age: "", incidents: "" });
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  // view can be "approved" or "prediction"
+  const [view, setView] = useState(location.state?.autoApproved ? "approved" : "initial"); 
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
-
-  // 1. Logic Check: Fraud 0 = Approved, Fraud 1 = Suspicious
-  const handleVerify = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    
-    try {
-      // Hits your FastAPI endpoint
-      const res = await API.post("/predict/fraud-check", formData);
-      
-      if (res.data.fraudclass === 0) {
-        setView("approved");
-      } else {
-        setView("suspicious"); // Move to the Suspicious view if class is 1
-      }
-    } catch (err) {
-      console.error("Connection Error");
-      setView("initial");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handlePredict = async () => {
     setLoading(true);
     try {
-      const res = await API.post("/predict/claim-value", formData);
+      // Hits your Payout Estimation logic
+      const res = await API.post("/predict/claim-value"); 
       setResult(res.data.estimated_amount);
       setView("prediction");
     } catch (err) {
-      console.error("Valuation Error");
+      console.error("Valuation engine error");
     } finally {
       setLoading(false);
     }
   };
 
-  const resetPage = () => {
-    setFormData({ age: "", incidents: "" });
-    setResult(null);
-    setView("initial");
-  };
-
   return (
     <div className="min-h-screen bg-black text-white p-8 font-mono flex items-center justify-center">
-      <div className="w-full max-w-xl border border-white p-10 relative bg-black shadow-2xl">
+      <div className="w-full max-w-xl border border-white p-12 relative bg-black shadow-2xl">
         
-        {/* --- VIEW 1: INITIAL DATA ENTRY --- */}
-        {view === "initial" && (
-          <div className="space-y-8 animate-in fade-in duration-500">
-            <h2 className="text-xl font-bold uppercase tracking-widest border-b border-white pb-4 flex items-center gap-3">
-              <Search size={20} /> Identity_Verification
-            </h2>
-            <form onSubmit={handleVerify} className="space-y-10">
-              <div className="space-y-4">
-                <input 
-                  type="number" 
-                  placeholder="INPUT_AGE" 
-                  className="w-full bg-transparent border-b border-gray-800 p-2 outline-none focus:border-white transition-all font-bold text-xl"
-                  onChange={(e) => setFormData({...formData, age: e.target.value})}
-                  required
-                />
-                <input 
-                  type="number" 
-                  placeholder="INPUT_INCIDENT_COUNT" 
-                  className="w-full bg-transparent border-b border-gray-800 p-2 outline-none focus:border-white transition-all font-bold text-xl"
-                  onChange={(e) => setFormData({...formData, incidents: e.target.value})}
-                  required
-                />
-              </div>
-              <button className="w-full border border-white py-4 font-bold uppercase hover:bg-white hover:text-black transition-all flex justify-center items-center gap-2">
-                {loading ? <Loader2 className="animate-spin" size={18} /> : "Run Security Scan"}
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* --- VIEW: SUSPICIOUS ACTIVITY (Your Requested Step) --- */}
-        {view === "suspicious" && (
-          <div className="relative animate-in zoom-in duration-300 py-10">
-            {/* Top Right Cross Mark */}
-            <button 
-              onClick={resetPage} 
-              className="absolute -top-4 -right-4 p-2 text-white hover:bg-white hover:text-black transition-all border border-white"
-            >
-              <X size={20} />
-            </button>
-
-            <div className="text-center space-y-6">
-              <div className="flex justify-center text-red-500 mb-4">
-                <ShieldAlert size={64} />
-              </div>
-              <div className="space-y-4">
-                <h2 className="text-2xl font-black uppercase text-red-500 tracking-tighter">Security Alert</h2>
-                <div className="p-4 border border-red-500 bg-red-500/5">
-                  <p className="text-sm leading-relaxed uppercase">
-                    It seems that your claim is suspicious.
-                  </p>
-                  <p className="text-[10px] text-gray-400 mt-2 uppercase tracking-widest font-bold">
-                    Please wait until admin reviews the claim.
-                  </p>
-                </div>
-              </div>
-              <p className="text-[8px] text-gray-700 uppercase pt-4">Flag_ID: REJ-882-SYS</p>
-            </div>
-          </div>
-        )}
-
-        {/* --- VIEW 2: AUTO-APPROVED MESSAGE --- */}
+        {/* --- VIEW: AUTO-APPROVED MESSAGE --- */}
         {view === "approved" && (
-          <div className="text-center space-y-10 animate-in zoom-in duration-300">
-            <div className="flex justify-center border-2 border-white rounded-full w-20 h-20 items-center mx-auto">
-              <ShieldCheck size={40} />
-            </div>
-            <div className="space-y-3">
-              <h2 className="text-3xl font-black uppercase tracking-tighter">Your Claim Was Auto Approved</h2>
-              <p className="text-[10px] text-gray-500 uppercase tracking-[0.3em]">Integrity Check: PASS // Risk_Score: 0.00</p>
+          <div className="text-center space-y-10 animate-in zoom-in duration-500">
+            <div className="flex justify-center">
+              <div className="p-5 border-2 border-white rounded-full">
+                <ShieldCheck size={50} className="text-white" />
+              </div>
             </div>
             <div className="space-y-4">
+              <h2 className="text-4xl font-black uppercase tracking-tighter">Your Claim Was Auto Approved</h2>
+              <p className="text-[10px] text-gray-500 uppercase tracking-[0.4em]">Validation Result: SUCCESS // Risk_Score: 0.00</p>
+            </div>
+
+            <div className="space-y-4 pt-6">
               <button 
                 onClick={handlePredict}
-                className="w-full bg-white text-black py-4 font-black uppercase flex items-center justify-center gap-2 hover:bg-gray-200 transition-all"
+                className="w-full bg-white text-black py-5 font-black uppercase flex items-center justify-center gap-3 hover:bg-gray-200 transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)]"
               >
-                Predict My Claimable Amount <ArrowRight size={18} />
+                {loading ? <Loader2 className="animate-spin" /> : <>Predict My Claimable Amount <ArrowRight size={20} /></>}
               </button>
-              <button onClick={resetPage} className="w-full text-xs text-gray-500 hover:text-white uppercase flex items-center justify-center gap-1">
-                <X size={12} /> No, Thanks
+              
+              <button 
+                onClick={() => navigate("/customer/claim")} // Redirects to ClaimAmount.js
+                className="w-full text-xs text-gray-500 hover:text-white uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
+              >
+                <X size={14} /> No, Thanks
               </button>
             </div>
           </div>
         )}
 
-        {/* --- VIEW 3: PREDICTION RESULT --- */}
+        {/* --- VIEW: PREDICTION RESULT --- */}
         {view === "prediction" && (
-          <div className="text-center space-y-8 animate-in slide-in-from-bottom-4 duration-500">
-            <h2 className="text-xl font-bold uppercase border-b border-white pb-4 flex justify-center items-center gap-2">
-              <Calculator size={20}/> Valuated_Payout
+          <div className="text-center space-y-10 animate-in slide-in-from-bottom-4 duration-500">
+            <h2 className="text-xl font-bold uppercase border-b border-white pb-6 flex justify-center items-center gap-3 tracking-widest">
+              <Calculator size={24}/> Valuated_Payout
             </h2>
-            <div className="py-14 border-2 border-white">
-              <span className="text-[10px] text-gray-500 uppercase tracking-widest">Calculated Limit</span>
-              <h3 className="text-7xl font-black mt-2 tracking-tighter">${result?.toLocaleString()}</h3>
+            <div className="py-16 border-2 border-white bg-white/5 relative overflow-hidden group">
+              <Zap size={100} className="absolute -right-8 -top-8 text-white/5 group-hover:text-white/10 transition-all" />
+              <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Estimated Disbursement Limit</span>
+              <h3 className="text-7xl font-black mt-3 tracking-tighter">${result?.toLocaleString()}</h3>
             </div>
-            <button onClick={resetPage} className="w-full border border-white py-4 font-bold uppercase hover:bg-white hover:text-black transition-all">
-              Close and Restart
+            <button 
+              onClick={() => navigate("/customer/dashboard")} 
+              className="w-full border border-white py-5 font-bold uppercase hover:bg-white hover:text-black transition-all tracking-widest"
+            >
+              Return to Control Center
             </button>
           </div>
         )}
+
+        <div className="absolute -bottom-12 left-0 right-0 text-center">
+          <span className="text-[8px] text-gray-800 uppercase tracking-[1em]">Secure_Verification_Node_Active</span>
+        </div>
       </div>
     </div>
   );
