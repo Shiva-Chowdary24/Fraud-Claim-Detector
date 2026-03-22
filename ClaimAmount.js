@@ -79,7 +79,7 @@ function ClaimAmount() {
       // If Fraud Prediction is 0 (Safe)
       if (res.data.fraud_prediction === 0) {
         toast.success("AI Analysis: Claim Verified");
-        navigate("/customer/predict-claim", { 
+        navigate("/customer/amount-predict", { 
           state: { autoApproved: true } 
         });
       } 
@@ -177,7 +177,7 @@ function ClaimAmount() {
 
                   <select name="channel" required onChange={handleChange} value={form.channel} className={selectClass}>
                     <option value="">Submission Channel</option>
-                    <option>Agent</option><option>Online Portal</option>
+                    <option>Agent</option><option>Online</option>
                   </select>
 
                   <select name="police_reported" required onChange={handleChange} value={form.police_reported} className={selectClass}>
