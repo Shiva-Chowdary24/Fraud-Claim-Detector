@@ -2,13 +2,14 @@ import React, { useState, useEffect } from "react";
 import { Bell, UserCircle, LogOut, Shield } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Notifications from "../components/Notifications";
-import axios from "axios";
+import API from "../api"; // ✅ Use your custom API instance for consistency
 
 function CustNavbar() {
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
 
+  // Default to ADMIN if it's an admin portal, or the stored ID for customers
   const customerId = localStorage.getItem("customer_id") || "000000";
   const fullName = localStorage.getItem("full_name") || "Customer";
 
@@ -19,21 +20,23 @@ function CustNavbar() {
 
   const fetchNotifications = async () => {
     try {
-      // ✅ Fetch Customer specific notifications
-      const res = await axios.get(`http://127.0.0.1:8000/customer/notifications?recipient_id=${customerId}`);
+      // ✅ FIX: Match your FastAPI Path Parameter: /notifications/get/{id}
+      const res = await API.get(`/notifications/get/${customerId}`);
       setNotifications(res.data);
     } catch (err) {
-      console.log("Error fetching notifications");
+      console.log("Error fetching notifications", err);
     }
   };
 
   useEffect(() => {
     fetchNotifications();
+    // Polling every 10 seconds to check for new approvals
     const interval = setInterval(fetchNotifications, 10000);
     return () => clearInterval(interval);
   }, [customerId]);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  // If you don't have a "read" boolean in DB, just use notifications.length
+  const unreadCount = notifications.length;
 
   return (
     <nav className="sticky top-0 z-30 flex justify-between items-center bg-slate-950/40 backdrop-blur-md border-b border-white/5 px-8 py-4">
@@ -44,7 +47,7 @@ function CustNavbar() {
 
       <div className="flex items-center gap-4 md:gap-8">
         
-        {/* ✅ Notification Bell */}
+        {/* Notification Bell */}
         <div className="relative">
           <button 
             onClick={() => setShowNotifications(!showNotifications)}
@@ -61,6 +64,7 @@ function CustNavbar() {
           {showNotifications && (
             <Notifications 
               notifications={notifications} 
+              setNotifications={setNotifications} // ✅ REQUIRED for "Clear All" logic
               onClose={() => setShowNotifications(false)} 
               role="customer" 
             />
@@ -78,7 +82,7 @@ function CustNavbar() {
           </div>
         </div>
 
-        {/* Profile with Name */}
+        {/* Profile */}
         <div className="flex items-center gap-3 px-4 py-1.5 rounded-xl border border-white/5 bg-slate-800/30">
           <UserCircle size={22} className="text-blue-400" />
           <span className="font-bold text-slate-100 text-sm tracking-tight">{fullName}</span>
