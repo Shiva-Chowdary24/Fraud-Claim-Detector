@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import API from "../services/api";
-import { ShieldCheck, ArrowRight, X, Calculator, Loader2, Sparkles } from "lucide-react";
+import confetti from "canvas-confetti"; // ✅ Import for the party blast
+import { ShieldCheck, X, Calculator, Loader2, Sparkles, CheckCircle } from "lucide-react";
 
 function ClaimAmountPage() {
   const location = useLocation();
@@ -12,25 +13,61 @@ function ClaimAmountPage() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // Security Gate: If someone tries to access this page without approval, send them back
+  useEffect(() => {
+    if (!location.state?.autoApproved && view !== "prediction") {
+      navigate("/customer/claim-amount");
+    }
+  }, [location, navigate, view]);
+
+  /**
+   * ✅ Updated Endpoint Logic
+   */
   const handlePredict = async () => {
     setLoading(true);
     try {
-      const res = await API.post("/predict/claim-value"); 
-      setResult(res.data.estimated_amount);
+      // 1. Match the new backend route we created
+      const payload = {
+        policy_id: location.state?.policyId,
+        customer_id: localStorage.getItem("customer_id"),
+        claim_amount: parseFloat(location.state?.claimAmount || 0)
+      };
+
+      const res = await API.post("/calculate-payout", payload); 
+      
+      // 2. Set Result and trigger Success State
+      setResult(res.data.amount);
       setView("prediction");
+
+      // ✅ 3. TRIGGER PARTY BLAST (Confetti)
+      triggerConfetti();
+
+      // ✅ 4. AUTOMATIC REDIRECT AFTER 6 SECONDS
+      // This gives the user time to see the congratulations before moving
+      setTimeout(() => {
+        navigate("/customer/claim-policies");
+      }, 6000);
+
     } catch (err) {
-      console.error("Valuation failed");
+      console.error("Valuation failed", err);
     } finally {
       setLoading(false);
     }
   };
 
+  const triggerConfetti = () => {
+    confetti({
+      particleCount: 150,
+      spread: 70,
+      origin: { y: 0.6 },
+      colors: ["#3b82f6", "#10b981", "#ffffff"]
+    });
+  };
+
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-200 p-6 font-sans flex items-center justify-center">
-      {/* Medium Sized Container (max-w-md) */}
       <div className="w-full max-w-md bg-[#1e293b] border border-slate-700 rounded-3xl shadow-2xl p-8 relative overflow-hidden">
         
-        {/* Decorative background glow */}
         <div className="absolute -top-24 -left-24 w-48 h-48 bg-blue-500/10 blur-3xl rounded-full"></div>
 
         {/* --- VIEW: AUTO-APPROVED --- */}
@@ -42,7 +79,7 @@ function ClaimAmountPage() {
               </div>
             </div>
             
-            <div className="space-y-2">
+            <div className="space-y-2 text-center">
               <h2 className="text-2xl font-bold text-white tracking-tight">Claim Auto-Approved</h2>
               <p className="text-sm text-slate-400 px-4">
                 Our AI engine found no irregularities. You are eligible for an immediate payout estimation.
@@ -61,42 +98,38 @@ function ClaimAmountPage() {
                   </>
                 )}
               </button>
-
-              <button 
-                onClick={() => navigate("/customer/predict")} 
-                className="w-full text-sm text-slate-500 hover:text-slate-300 font-medium py-2 transition-colors flex items-center justify-center gap-1"
-              >
-                No, thanks. I'll do it later.
-              </button>
             </div>
           </div>
         )}
 
-        {/* --- VIEW: PREDICTION RESULT --- */}
+        {/* --- VIEW: CONGRATULATIONS & PREDICTION RESULT --- */}
         {view === "prediction" && (
           <div className="text-center space-y-6 animate-in slide-in-from-bottom-8 duration-500">
-            <div className="inline-flex items-center gap-2 bg-slate-800 px-4 py-1.5 rounded-full border border-slate-700 mb-2">
-              <Calculator size={14} className="text-blue-400" />
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Valuation Result</span>
+            <div className="flex justify-center">
+               <CheckCircle size={60} className="text-emerald-400 animate-bounce" />
             </div>
 
-            <div className="bg-gradient-to-b from-slate-800 to-slate-900 border border-slate-700 rounded-2xl py-10 shadow-inner">
-              <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">Estimated Disbursement</p>
-              <h3 className="text-5xl font-black text-white mt-3 tracking-tighter">
+            <div className="space-y-2">
+               <h1 className="text-3xl font-black text-white uppercase tracking-tighter">Congratulations!</h1>
+               <p className="text-emerald-400 font-bold">The claimable amount is up to:</p>
+            </div>
+
+            <div className="bg-gradient-to-b from-slate-800 to-slate-900 border border-slate-700 rounded-2xl py-8 shadow-inner">
+              <h3 className="text-5xl font-black text-white tracking-tighter">
                 <span className="text-blue-500">$</span>{result?.toLocaleString()}
               </h3>
             </div>
 
             <div className="pt-4 space-y-3">
-              <button 
-                onClick={() => navigate("/customer/dashboard")} 
-                className="w-full bg-slate-100 hover:bg-white text-slate-900 py-4 rounded-xl font-bold transition-all active:scale-95"
-              >
-                Return to Dashboard
-              </button>
-              <p className="text-[10px] text-slate-500">
-                This is a model-generated estimate. Final amount subject to adjustment.
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest animate-pulse">
+                Redirecting to active policies in 5s...
               </p>
+              <button 
+                onClick={() => navigate("/customer/claim-policies")} 
+                className="w-full text-xs text-blue-400 hover:underline font-bold"
+              >
+                Skip to Policy List
+              </button>
             </div>
           </div>
         )}
