@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import API from "../services/api";
-import confetti from "canvas-confetti"; // ✅ Added for Party Blast
+import confetti from "canvas-confetti"; 
 import { ShieldCheck, ArrowRight, X, Calculator, Loader2, Sparkles, CheckCircle } from "lucide-react";
 
 function ClaimAmountPage() {
