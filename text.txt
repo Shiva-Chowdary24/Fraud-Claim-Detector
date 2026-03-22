@@ -21,3 +21,20 @@
   "payment_frequency": "Annual",
   "gender": "Female"
 }
+
+
+
+@router.get("/customer/policy-details/{policy_id}")
+def get_policy(policy_id: str):
+    try:
+        policy = db.issued_policies.find_one({"policy_id": policy_id})
+
+        if not policy:
+            raise HTTPException(status_code=404, detail="Policy not found")
+
+        policy["_id"] = str(policy["_id"])  # Convert ObjectId
+
+        return policy
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
