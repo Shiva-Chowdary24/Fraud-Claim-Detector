@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import API from "../api"; // Ensure this points to your axios instance
+import API from "../services/api"; // Ensure this points to your axios instance
 import AdminLayout from "../components/AdminLayout";
 import { toast } from "react-toastify";
 import { Check, X, ShieldAlert, Clock, Info, RefreshCw, Loader2 } from "lucide-react";
@@ -56,7 +56,7 @@ function Logs() {
 
       // --- STEP C: Send Notification to DB ---
       await API.post("/notifications/add", {
-        recipient_email: log.user_email || log.Policy_id,
+        recipient_id: log.customer_id || log.Policy_id,
         message: notificationMessage,
         link: targetPath,
         status: status
