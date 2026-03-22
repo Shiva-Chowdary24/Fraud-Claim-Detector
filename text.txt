@@ -1,9 +1,38 @@
-return {
-        "plan_name": policy["plan_name"],
-        "premium": policy["premium_amount"],          # ✅ FIX
-        "sum_assured": policy["total_claim_amount"],  # ✅ FIX
-        "tenure": policy["tenure"],
-        "plan_type": policy["plan_type"],
-        "description": policy["description"],
-        "benefits": policy["benefits"]
-    }
+@router.post("/admin/policy-approve/{request_id}")
+def approve(request_id: str, role: str = Header(None)):
+    verify_admin(role)
+    try:
+        req = policy_requests.find_one({"_id": ObjectId(request_id)})
+        if not req:
+            raise HTTPException(404, "Application not found")
+
+        plan_name = req.get("plan_name", "POL")
+        prefix = plan_name[:3].upper()
+        generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
+        customer_id = req.get("customer_id")
+
+        issued_data = {**req, "policy_id": generated_id, "status": "Active", "approved_at": now()}
+        issued_data.pop("_id", None) 
+
+        issued_policies.insert_one(issued_data)
+        policy_requests.delete_one({"_id": ObjectId(request_id)})
+
+        # ✅ FIXED: Ensuring "read" and "recipient_id" are consistent
+        notifications.insert_one({
+            "recipient_id": str(customer_id), # Ensure string
+            "message": f"Your {plan_name} policy was APPROVED! ID: {generated_id}",
+            "type": "policy_update",
+            "link": "/customer/policy-history",
+            "read": False,
+            "timestamp": now()
+        })
+
+        audit_logs.insert_one({
+            "action": "Approved",
+            "details": f"Policy {generated_id} issued to {req.get('email')}",
+            "timestamp": now()
+        })
+
+        return {"message": "Approved", "policy_id": generated_id}
+    except Exception as e:
+        raise HTTPException(500, "Internal Error")
