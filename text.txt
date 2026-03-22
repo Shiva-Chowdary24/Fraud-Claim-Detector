@@ -1,5 +1,62 @@
-{"detail":[{"type":"json_invalid","loc":["body",11],"msg":"JSON decode error","input":{},"ctx":{"error":"Extra data"}}]}
-1" 422 Unprocessable Content
-
-INFO:     127.0.0.1:62700 - "POST /predict-health HTTP/1.1" 422 Unprocessable Content
-INFO:     127.0.0.1:62700 - "POST /predict-health HTTP/1.INFO:     127.0.0.1:62700 - "POST /predict-health HTTP/1.1" 422 Unprocessable Content
+{
+    "detail": [
+        {
+            "type": "missing",
+            "loc": [
+                "body",
+                "customer_id"
+            ],
+            "msg": "Field required",
+            "input": {
+                "policy_id": "POL_APPROVE_003",
+                "age": 41,
+                "policy_tenure_years": 6.8,
+                "prior_claims_count": 0,
+                "incident_severity": "Low",
+                "region_risk_level": "Low",
+                "bmi": 24.6,
+                "bloodpressure": 72,
+                "diabetes": 0,
+                "hereditary_diseases": "NoDisease",
+                "smoker": 0,
+                "regular_ex": 1,
+                "weight": 70,
+                "health_risk_score": 1,
+                "policy_coverage_details": "Individual",
+                "total_claim_amount": 1000000,
+                "premium_amount": 42000,
+                "payment_frequency": "Annual",
+                "gender": "Female"
+            }
+        },
+        {
+            "type": "missing",
+            "loc": [
+                "body",
+                "claim_amount"
+            ],
+            "msg": "Field required",
+            "input": {
+                "policy_id": "POL_APPROVE_003",
+                "age": 41,
+                "policy_tenure_years": 6.8,
+                "prior_claims_count": 0,
+                "incident_severity": "Low",
+                "region_risk_level": "Low",
+                "bmi": 24.6,
+                "bloodpressure": 72,
+                "diabetes": 0,
+                "hereditary_diseases": "NoDisease",
+                "smoker": 0,
+                "regular_ex": 1,
+                "weight": 70,
+                "health_risk_score": 1,
+                "policy_coverage_details": "Individual",
+                "total_claim_amount": 1000000,
+                "premium_amount": 42000,
+                "payment_frequency": "Annual",
+                "gender": "Female"
+            }
+        }
+    ]
+}
