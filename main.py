@@ -2,8 +2,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from bson import ObjectId
 from database import notifications  
-from routes import auth, admin, customer, predict,policy
+from routes import auth, admin, customer, predict,policy,payout
 from pydantic import BaseModel
+from datetime import datetime
 
 app = FastAPI()
 
@@ -22,7 +23,7 @@ app.include_router(admin.router)
 app.include_router(customer.router)
 app.include_router(predict.router)
 app.include_router(policy.router)
-
+app.include_router(payout.router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -38,19 +39,31 @@ class NotificationModel(BaseModel):
 # --- ROUTES ---
 
 # 1. Add Notification (The Sender)
+# @app.post("/notifications/add")
+# def add_notification(notif: NotificationModel):
+#     try:
+#         # ✅ FIX: Actually insert into MongoDB
+#         new_notif = notif.dict()
+#         new_notif["timestamp"] = datetime.utcnow().isoformat() # ISO format for JS compatibility
+        
+#         result = notifications.insert_one(new_notif)
+        
+#         return {"message": "Notification stored", "id": str(result.inserted_id)}
+#     except Exception as e:
+#         print(f"Insert Error: {e}")
+#         raise HTTPException(status_code=500, detail="Database failure")
 @app.post("/notifications/add")
-async def add_notification(notif: NotificationModel):
-    try:
-        # ✅ FIX: Actually insert into MongoDB
-        new_notif = notif.dict()
-        new_notif["timestamp"] = datetime.utcnow().isoformat() # ISO format for JS compatibility
-        
-        result = notifications.insert_one(new_notif)
-        
-        return {"message": "Notification stored", "id": str(result.inserted_id)}
-    except Exception as e:
-        print(f"Insert Error: {e}")
-        raise HTTPException(status_code=500, detail="Database failure")
+def add_notification(notif: NotificationSchema):
+    new_notif = {
+        "recipient_id": notif.recipient_id,
+        "message": notif.message,
+        "link": notif.link,
+        "status": notif.status,
+        "read": False, # Initial state
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    db.notifications.insert_one(new_notif)
+    return {"message": "Notification Sent"}
 
 # 2. Erase a single notification (The 'Click to Action')
 @app.delete("/{role}/notifications/erase/{notif_id}")
@@ -80,12 +93,12 @@ def clear_all_notifications(role: str, recipient_id: str):
 
 # 4. Fetch Notifications (The 'Bell' icon needs this!)
 @app.get("/notifications/get/{recipient_id}")
-async def get_notifications(recipient_id: str):
+def get_notifications(recipient_id: str):
     try:
         # Fetch last 20 notifications
         cursor = notifications.find({"recipient_id": recipient_id}).sort("_id", -1).limit(20)
         results = []
-        for doc in await cursor.to_list(length=20): # Use await if using Motor
+        for doc in list(cursor): # Use await if using Motor
             doc["_id"] = str(doc["_id"]) # Convert ObjectId to string for JSON
             results.append(doc)
         return results
