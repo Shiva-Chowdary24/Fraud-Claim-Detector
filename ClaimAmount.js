@@ -66,7 +66,7 @@ function ClaimAmount() {
       // ✅ THE CONNECTION LOGIC
       // If FraudClass is 0, we navigate and "pass" the approved state
       if (res.data.fraud_prediction === 0 || res.data.fraudclass === 0) {
-        navigate("/customer/claim-status", { 
+        navigate("/customer/predict-claim", { 
           state: { autoApproved: true } 
         });
       } 
