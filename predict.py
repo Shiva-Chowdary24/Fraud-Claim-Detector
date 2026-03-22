@@ -21,7 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from features import engineer_features, apply_te_from_state
-from reason_codes import reason_sentences
+from utils.reason_codes import reason_sentences
 
 # -------------------- LOGGER --------------------
 logger = logging.getLogger("predict")
