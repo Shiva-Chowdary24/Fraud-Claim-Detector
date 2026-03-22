@@ -27,14 +27,18 @@
 @router.get("/customer/policy-details/{policy_id}")
 def get_policy(policy_id: str):
     try:
+        print("Incoming policy_id:", policy_id)
+
         policy = db.issued_policies.find_one({"policy_id": policy_id})
+        print("DB result:", policy)
 
         if not policy:
             raise HTTPException(status_code=404, detail="Policy not found")
 
-        policy["_id"] = str(policy["_id"])  # Convert ObjectId
+        policy["_id"] = str(policy["_id"])
 
         return policy
 
     except Exception as e:
+        print("ERROR:", str(e))  # 👈 THIS WILL SHOW REAL ISSUE
         raise HTTPException(status_code=500, detail=str(e))
