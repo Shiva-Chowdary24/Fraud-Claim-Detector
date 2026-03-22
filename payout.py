@@ -8,7 +8,7 @@ from typing import Optional
 router = APIRouter(tags=["Payout Estimation"])
 
 # --- LOAD PAYOUT MODEL ---
-PAYOUT_MODEL_PATH = os.path.join("artifacts", "payout_model.joblib")
+PAYOUT_MODEL_PATH = os.path.join("artifacts", "amount_model.joblib")
 try:
     payout_model = joblib.load(PAYOUT_MODEL_PATH)
     print("✅ Health Payout Model Loaded")
