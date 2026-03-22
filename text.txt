@@ -1,10 +1,2 @@
-@app.post("/admin/logs/update-status")
-async def update_log_status(data: StatusUpdate):
-    # Find the log in your DB and change fraudclass or status
-    result = await db.claims.update_one(
-        {"Policy_id": data.Policy_id}, 
-        {"$set": {"admin_decision": data.status}}
-    )
-    if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="Policy ID not found")
-    return {"message": "Database updated successfully"}
+{"detail":[{"type":"missing","loc":["query","data"],"msg":"Field required","input":null}]}
+422 Unprocessable Entity (WebDAV) (RFC 4918)
