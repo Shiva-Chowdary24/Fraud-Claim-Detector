@@ -1,62 +1,24 @@
-{
-    "detail": [
-        {
-            "type": "missing",
-            "loc": [
-                "body",
-                "customer_id"
-            ],
-            "msg": "Field required",
-            "input": {
-                "policy_id": "POL_APPROVE_003",
-                "age": 41,
-                "policy_tenure_years": 6.8,
-                "prior_claims_count": 0,
-                "incident_severity": "Low",
-                "region_risk_level": "Low",
-                "bmi": 24.6,
-                "bloodpressure": 72,
-                "diabetes": 0,
-                "hereditary_diseases": "NoDisease",
-                "smoker": 0,
-                "regular_ex": 1,
-                "weight": 70,
-                "health_risk_score": 1,
-                "policy_coverage_details": "Individual",
-                "total_claim_amount": 1000000,
-                "premium_amount": 42000,
-                "payment_frequency": "Annual",
-                "gender": "Female"
-            }
-        },
-        {
-            "type": "missing",
-            "loc": [
-                "body",
-                "claim_amount"
-            ],
-            "msg": "Field required",
-            "input": {
-                "policy_id": "POL_APPROVE_003",
-                "age": 41,
-                "policy_tenure_years": 6.8,
-                "prior_claims_count": 0,
-                "incident_severity": "Low",
-                "region_risk_level": "Low",
-                "bmi": 24.6,
-                "bloodpressure": 72,
-                "diabetes": 0,
-                "hereditary_diseases": "NoDisease",
-                "smoker": 0,
-                "regular_ex": 1,
-                "weight": 70,
-                "health_risk_score": 1,
-                "policy_coverage_details": "Individual",
-                "total_claim_amount": 1000000,
-                "premium_amount": 42000,
-                "payment_frequency": "Annual",
-                "gender": "Female"
-            }
-        }
-    ]
+    {"policy_id": "POL_APPROVE_003",
+    "customer_id":"12345",
+  "age": 41,
+  "policy_tenure_years": 6.8,
+  "prior_claims_count": 0,
+  "incident_severity": "Low",
+  "region_risk_level": "Low",
+  "bmi": 24.6,
+  "bloodpressure": 72,
+  "diabetes": 0,
+  "hereditary_diseases": "NoDisease",
+  "smoker": 0,
+  "regular_ex": 1,
+  "weight": 70,
+  "health_risk_score": 1,
+  "policy_coverage_details": "Individual",
+  "claim_amount": 1000000,
+  "premium_amount": "42000",
+  "payment_frequency": "Annual",
+  "gender": "Female",
+  "sum_assured":30000
 }
+ERROR: columns are missing: {'premium_amount', 'sum_assured', 'policy_tenure_years'}
+INFO:     127.0.0.1:62456 - "POST /predict-health HTTP/1.1" 400 Bad Request
