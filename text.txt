@@ -17,7 +17,7 @@ except Exception as e:
     payout_model = None
 
 
-# --- FULL SCHEMA (ALL HEALTH FEATURES REQUIRED) ---
+# --- FULL SCHEMA ---
 class PayoutRequest(BaseModel):
     policy_id: str
     customer_id: str
@@ -41,39 +41,36 @@ class PayoutRequest(BaseModel):
 
 
 # --- PREDICTION API ---
-# Get expected columns from trained pipeline
-
-
-
-# Keep only required columns
-df = df[required_cols]
 @router.post("/predict-health")
 def predict_health(data: PayoutRequest):
-    input_dict=data.dict()
-df = pd.DataFrame([input_dict])
-required_cols = payout_model.named_steps["prep"].feature_names_in_
-# Add missing columns
-for col in required_cols:
-    if col not in df.columns:
-        df[col] = 0
 
     if not payout_model:
         raise HTTPException(status_code=500, detail="Model not loaded")
 
     try:
-        # 1️⃣ Convert to dict
-        input_data = data.dict()
+        # 1️⃣ Convert request to dict
+        input_data = data.model_dump()   # or data.dict()
 
-        # 2️⃣ Remove non-ML fields
-        features = {k: v for k, v in input_data.items()
-                    if k not in ["policy_id", "customer_id", "claim_amount"]}
+        # 2️⃣ Remove non-model fields
+        features = {
+            k: v for k, v in input_data.items()
+            if k not in ["policy_id", "customer_id", "claim_amount"]
+        }
 
         # 3️⃣ Convert to DataFrame
         df = pd.DataFrame([features])
 
-        # 4️⃣ Predict
-        prediction = payout_model.predict(df)
+        # 4️⃣ Align with model features (VERY IMPORTANT)
+        required_cols = payout_model.named_steps["prep"].feature_names_in_
 
+        for col in required_cols:
+            if col not in df.columns:
+                df[col] = 0
+
+        df = df[required_cols]
+
+        # 5️⃣ Predict
+        prediction = payout_model.predict(df)
         amount = round(float(prediction[0]), 2)
 
         return {
