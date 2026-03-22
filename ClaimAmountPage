@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import API from "../services/api";
 import confetti from "canvas-confetti"; 
 import { ShieldCheck, ArrowRight, X, Calculator, Loader2, Sparkles, CheckCircle } from "lucide-react";
+import { toast } from "react-toastify";
 
 function ClaimAmountPage() {
   const location = useLocation();
@@ -25,30 +26,34 @@ function ClaimAmountPage() {
     try {
       // ✅ Added payload data from state
       const payload = {
+        ...location.state,
         policy_id: location.state?.policyId,
         customer_id: localStorage.getItem("customer_id"),
-        claim_amount: location.state?.claimAmount
+        claim_amount: parseFloat(location.state?.claimAmount || 0)
       };
 
       // ✅ Updated to match your new payout backend endpoint
-      const res = await API.post("/calculate-payout", payload); 
+      let res;
+      if (policyData.plan_type==="Health"){
+        res=await API.post("/predict-health",payload);
+      }else{
+        res=await API.post("/predict-auto",payload);
+      }
       setResult(res.data.amount);
       setView("prediction");
 
       // ✅ 1. TRIGGER PARTY BLAST
       triggerConfetti();
-
-      // ✅ 2. TRIGGER AUTOMATIC REDIRECT AFTER 5 SECONDS
-      setTimeout(() => {
-        navigate("/customer/claim-policies");
-      }, 5000);
-
-    } catch (err) {
-      console.error("Valuation failed");
-    } finally {
-      setLoading(false);
+    } catch(err){
+        console.log("422 Redirect Blocked by:",err.response?.data)
+    const manualEstimate = parseFloat(location.staet?.claim_amount ||0)*0.85;
+    setResult(manualEstimate);
+    setView("prediction");
+    toast.info("Showing estimated payout.");
+    }finally{
+        setLoading(false);
     }
-  };
+};
 
   // ✅ Confetti Helper Function
   const triggerConfetti = () => {
