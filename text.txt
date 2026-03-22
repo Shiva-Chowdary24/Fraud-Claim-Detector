@@ -1,10 +1,11 @@
-if (recipient) {
-      await API.post("/notifications/add", {
-        recipient_id: String(recipient), // Use the 6-digit ID
-        message: status === "Approved" 
-          ? "Congratulations! Your claim was approved. Click here to predict the amount." 
-          : "Your claim is suspected as fraud, so your claim was not approved.",
-        link: status === "Approved" ? "/customer/predict-claim" : "/customer/dashboard",
-        status: status
-      });
-    }
+2026-03-22 18:04:42,799 | INFO | predict | [PREDICT][69bfe1e214e12cdaaab692aa] proba=0.767403 threshold=0.680891 pred=1 policy=POLD-300A-0012
+INFO:     127.0.0.1:57048 - "POST /predict HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62867 - "POST /admin/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62867 - "GET /admin/notifications?recipient_id=ADMIN HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62867 - "GET /admin/notifications?recipient_id=ADMIN HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62867 - "GET /admin/logs HTTP/1.1" 200 OK
+Updating POLD-300A-0012 to Approved
+INFO:     127.0.0.1:62867 - "POST /admin/logs/update-status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62867 - "GET /admin/logs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55232 - "GET /admin/notifications?recipient_id=ADMIN HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50980 - "GET /admin/notifications?recipient_id=ADMIN HTTP/1.1" 200 OK
