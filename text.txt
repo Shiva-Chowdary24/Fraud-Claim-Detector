@@ -1,52 +1,9 @@
-@router.post("/admin/policy-approve/{request_id}")
-def approve(request_id: str, role: str = Header(None)):
-    verify_admin(role)
-
-    try:
-        req = policy_requests.find_one({"_id": ObjectId(request_id)})
-        if not req:
-            raise HTTPException(404, "Application not found")
-
-        # ✅ FETCH FROM MASTER COLLECTION
-        policy_master = db.policies.find_one({
-            "plan_name": req.get("plan_name")
-        })
-
-        if not policy_master:
-            raise HTTPException(404, "Policy not found in master collection")
-
-        plan_name = req.get("plan_name", "POL")
-        prefix = plan_name[:3].upper()
-        generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
-
-        issued_data = {
-            "policy_id": generated_id,
-            "customer_id": req.get("customer_id"),
-
-            # from request
-            "plan_name": req.get("plan_name"),
-            "email": req.get("email"),
-
-            # 🔥 from policies collection (FIX)
-            "plan_type": policy_master.get("plan_type"),
-            "premium_amount": policy_master.get("premium_amount"),
-            "total_claim_amount": policy_master.get("total_claim_amount"),
-            "tenure": policy_master.get("tenure"),
-            "description": policy_master.get("description"),
-            "benefits": policy_master.get("benefits"),
-
-            "status": "Active",
-            "approved_at": now()
-        }
-
-        issued_policies.insert_one(issued_data)
-
-        policy_requests.delete_one({"_id": ObjectId(request_id)})
-
-        return {
-            "message": "Approved",
-            "policy_id": generated_id
-        }
-
-    except Exception as e:
-        raise HTTPException(500, f"Error: {str(e)}")
+127.0.0.1:55325 - "OPTIONS /customer/policy-details/PL-PLA-8533 HTTP/1.1" 200 OK
+Incoming policy_id: PL-PLA-8533
+ERROR: 404: Policy not found
+INFO:     127.0.0.1:55325 - "GET /customer/policy-details/PL-PLA-8533 HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:61759 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60417 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59274 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49793 - "GET /notifications/get/91649/PL-PLA-8533 HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:61759 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
