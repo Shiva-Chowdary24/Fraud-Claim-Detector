@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import API from "../services/api"; // ✅ Using your centralized API instance
+import API from "../services/api"; 
 import AdminLayout from "../components/AdminLayout";
 import { toast } from "react-toastify";
 import { 
@@ -9,25 +9,32 @@ import {
   Info, 
   RefreshCw, 
   Loader2, 
-  ExternalLink 
+  MessageSquare,
+  Send 
 } from "lucide-react";
 
 function Logs() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState(null);
+  
+  // States for Decline Reason Modal
+  const [showDeclineModal, setShowDeclineModal] = useState(false);
+  const [selectedLog, setSelectedLog] = useState(null);
+  const [declineReason, setDeclineReason] = useState("");
 
-  // 1. Fetching Logic: Pulls Class 01 (Suspicious) logs from FastAPI
+  // 1. Fetching Logic: Only shows logs that haven't been processed yet
   const fetchLogs = () => {
     setLoading(true);
     API.get("/admin/logs")
       .then((res) => {
-        setLogs(res.data);
-        console.log("Fetched Fraud Logs:", res.data);
+        // Filter out any logs that already have a status other than 'Pending'
+        const pendingLogs = res.data.filter(log => !log.status || log.status === "Pending");
+        setLogs(pendingLogs);
       })
       .catch((err) => {
         console.error("Fetch Error:", err);
-        toast.error("Failed to load fraud logs from database.");
+        toast.error("Failed to load fraud logs.");
       })
       .finally(() => setLoading(false));
   };
@@ -37,71 +44,69 @@ function Logs() {
   }, []);
 
   /**
-   * 2. Handle Admin Action (Approve/Decline)
-   * Step A: Updates the status in the 'fraud_logs' collection.
-   * Step B: Automatically sends a notification to the specific Customer ID.
+   * 2. Handle Admin Action
+   * @param {Object} log - The log entry
+   * @param {String} status - 'Approved' or 'Declined'
+   * @param {String} reason - The manual reason for decline
    */
-  const handleAction = async (log, status) => {
+  const handleAction = async (log, status, reason = "") => {
     setProcessingId(log.Policy_id);
 
-    // ✅ DETECT RECIPIENT ID
-    // We try every possible field name to ensure we don't send 'undefined' to Mongo
-    const recipient = log.customer_id || log.cust_id || log.user_id || log.userId;
-
-    console.log(`Action Triggered: ${status} for ${log.Policy_id}`);
-    console.log("Recipient Detection:", { 
-      foundID: recipient, 
-      fullLogData: log 
-    });
+    const recipient = log.customer_id || log.cust_id || log.user_id;
 
     try {
-      // --- STEP A: Update Status in Backend ---
-      // This matches your @router.post("/admin/logs/update-status")
+      // --- STEP A: Update Status & Reason in DB ---
       await API.post(`/admin/logs/update-status`, { 
         Policy_id: log.Policy_id, 
-        status: status 
+        status: status,
+        reason: reason // This field is saved in the fraud_logs collection
       });
 
       // --- STEP B: Send Notification to Customer ---
-      // This matches your @app.post("/notifications/add")
       if (recipient) {
         const notificationData = {
-          recipient_id: String(recipient), // Must be a string for the fetcher
+          recipient_id: String(recipient),
           message: status === "Approved" 
-            ? `Good news! Your claim for ${log.Policy_id} was APPROVED. Click to predict your payout.` 
-            : `Notice: Your claim for ${log.Policy_id} was declined following a risk review.`,
-          link: status === "Approved" ? "/customer/predict-claim" : "/customer/dashboard",
+            ? `Your claim for ${log.Policy_id} was APPROVED. View your policy details.` 
+            : `Your claim for ${log.Policy_id} was declined. Click to see the reason.`,
+          link: "/customer/claim-policies", // Redirects to the page with the "Know More" button
           status: status
         };
 
         await API.post("/notifications/add", notificationData);
-        console.log("Notification sent successfully to:", recipient);
-      } else {
-        console.warn("Notification skipped: No customer_id found in this log entry.");
-        toast.warning("Status updated, but could not notify user (ID missing).");
       }
 
-      toast.success(`Policy ${log.Policy_id} marked as ${status}`);
+      toast.success(`Claim ${status} successfully.`);
       
-      // Refresh list to remove the processed item
+      // Cleanup Modal states
+      setShowDeclineModal(false);
+      setDeclineReason("");
+      setSelectedLog(null);
+
+      // Refresh list: The item will disappear because its status is no longer 'Pending'
       fetchLogs(); 
     } catch (err) {
-      console.error("Process Error:", err.response?.data || err.message);
-      toast.error("Server error during processing.");
+      console.error("Process Error:", err);
+      toast.error("Error updating claim status.");
     } finally {
       setProcessingId(null);
     }
+  };
+
+  const openDeclineModal = (log) => {
+    setSelectedLog(log);
+    setShowDeclineModal(true);
   };
 
   return (
     <AdminLayout>
       {/* Header Section */}
       <div className="flex items-center justify-between mb-8 border-b border-white/10 pb-6">
-        <div>
-          <h2 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-3 text-white text-left">
+        <div className="text-left">
+          <h2 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-3 text-white">
             <ShieldAlert size={28} className="text-red-500" /> Fraud Review Queue
           </h2>
-          <p className="text-[10px] text-gray-500 uppercase tracking-[0.2em] mt-1 text-left">
+          <p className="text-[10px] text-gray-500 uppercase tracking-[0.2em] mt-1">
             Manual verification required for AI Class_01 flags
           </p>
         </div>
@@ -123,7 +128,7 @@ function Logs() {
         </div>
       ) : logs.length === 0 ? (
         <div className="py-32 text-center border border-dashed border-white/10 rounded-3xl">
-          <p className="font-mono text-gray-600 uppercase tracking-widest text-sm italic">Clean_Queue: No_Suspicious_Activity</p>
+          <p className="font-mono text-gray-600 uppercase tracking-widest text-sm italic">Clean_Queue: No_Pending_Requests</p>
         </div>
       ) : (
         <div className="overflow-x-auto border border-white/10 bg-black/20 rounded-3xl shadow-2xl overflow-hidden">
@@ -147,10 +152,10 @@ function Logs() {
                     {log.customer_id || log.cust_id || "MISSING"}
                   </td>
 
-                  <td className="p-5 text-xs text-gray-400 italic leading-relaxed max-w-xs">
+                  <td className="p-5 text-xs text-gray-400 italic leading-relaxed max-w-xs text-left">
                     <div className="flex items-start gap-3">
                       <Info size={14} className="shrink-0 mt-0.5 text-blue-500/50" />
-                      <span>{log.reasons || "Probability threshold exceeded. Manual audit required."}</span>
+                      <span>{log.reasons || "Probability threshold exceeded."}</span>
                     </div>
                   </td>
 
@@ -167,7 +172,7 @@ function Logs() {
                       
                       <button
                         disabled={processingId === log.Policy_id}
-                        onClick={() => handleAction(log, "Declined")}
+                        onClick={() => openDeclineModal(log)}
                         className="flex items-center justify-center gap-2 border border-red-500/50 text-red-500 py-2 text-[9px] font-black uppercase hover:bg-red-500 hover:text-white transition-all disabled:opacity-30 rounded-lg"
                       >
                         <X size={12} /> DECLINE
@@ -178,6 +183,44 @@ function Logs() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* --- DECLINE REASON MODAL --- */}
+      {showDeclineModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#111e32] border border-white/10 w-full max-w-md rounded-3xl p-8 animate-in zoom-in duration-200 shadow-2xl">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-red-500/10 rounded-lg">
+                <MessageSquare className="text-red-500" size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-white uppercase tracking-tighter">Decline Reason</h3>
+            </div>
+
+            <p className="text-[10px] text-slate-500 uppercase font-bold mb-2 tracking-widest text-left">Internal Policy Note</p>
+            <textarea 
+              className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white outline-none focus:ring-2 focus:ring-red-500 h-32 resize-none mb-6 text-sm"
+              placeholder="Provide a reason for declining this claim (e.g., Missing police report, suspicious image variance...)"
+              value={declineReason}
+              onChange={(e) => setDeclineReason(e.target.value)}
+            />
+
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowDeclineModal(false)} 
+                className="flex-1 py-3 rounded-xl border border-white/10 text-slate-400 hover:bg-white/5 font-bold uppercase text-[10px] tracking-widest transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => handleAction(selectedLog, "Declined", declineReason)} 
+                disabled={!declineReason || processingId === selectedLog?.Policy_id}
+                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold uppercase text-[10px] tracking-widest transition-all flex items-center justify-center gap-2"
+              >
+                {processingId === selectedLog?.Policy_id ? <Loader2 className="animate-spin" size={14} /> : <><Send size={14} /> Submit</>}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </AdminLayout>
