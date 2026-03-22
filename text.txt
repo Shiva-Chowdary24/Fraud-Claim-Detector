@@ -1,14 +1,18 @@
 @router.post("/admin/login")
 def login(req: AuthRequest):
+    # 1. Find the user. Using 'role': 'admin' ensures customers can't use this route.
     user = users.find_one({"email": req.email, "role": "admin"})
 
+    # 2. Verify password with the salt and hash from your manual script
     if not user or not verify_password(req.password, user["salt"], user["password"]):
-        raise HTTPException(401, "Invalid credentials")
+        raise HTTPException(status_code=401, detail="Invalid admin credentials")
 
-    # Returning both the ID and the Full Name
+    # 3. Return the COMPLETE identity package
     return {
         "message": "Login success", 
         "email": req.email, 
-        "admin_id": user.get("admin_id"),
-        "full_name": user.get("full_name") 
+        "admin_id": str(user.get("admin_id")), # Ensure ID is a string for JSON
+        "full_name": user.get("full_name"),
+        "role": "admin",  # 👈 CRITICAL: React needs this to authorize the dashboard
+        "token": "admin_session_token" # Optional: add if your frontend expects a token
     }
