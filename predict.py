@@ -45,29 +45,23 @@ THRESHOLD = {"threshold": 0.5}
 TE_STATE = None
 
 try:
-    BUNDLE = joblib.load(MODEL_PATH)  # expects keys: model, imputer, features, te_state
+    BUNDLE = joblib.load(MODEL_PATH)
     THRESHOLD = json.load(open(THRESHOLD_PATH, "r", encoding="utf-8"))
     TE_STATE = BUNDLE.get("te_state", BUNDLE.get("target_encoder_state"))
     logger.info("[STARTUP] Artifacts loaded. Features: %s", BUNDLE.get("features"))
 except Exception as e:
-    logger.exception("⚠️  Prediction artifacts failed to load: %r", e)
+    logger.exception("⚠️ Prediction artifacts failed to load: %r", e)
 
 # -------------------- MONGO CONNECTION --------------------
 MONGO_URI = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.getenv("DB_NAME", "Insurancedb")
 
-logger.info("[STARTUP] Connecting to MongoDB %s DB=%s", MONGO_URI, DB_NAME)
 client = MongoClient(MONGO_URI)
-
-try:
-    client.admin.command("ping")
-    logger.info("[STARTUP] Mongo connected. Address: %s", client.address)
-except Exception as e:
-    logger.exception("[STARTUP][ERROR] Mongo ping failed: %r", e)
-
 db = client[DB_NAME]
+
+# Collections
 dealers: Collection = db["Dealer_Data"]
-customers: Collection = db["Insurance"]
+insurance_col: Collection = db["Insurance"] # ✅ Ensure this matches your collection name
 fraud_logs: Collection = db["Fraud_Logs"]
 fraud_logs.create_index([("Policy_id", ASCENDING)], name="ix_policy_id")
 
@@ -77,7 +71,8 @@ def now_utc_iso() -> str:
 
 # -------------------- SCHEMAS --------------------
 class PredictIn(BaseModel):
-    Policy_id: Optional[str] = Field(default=None, description="Policy identifier for logging")
+    Policy_id: Optional[str] = Field(default=None, description="Policy identifier")
+    customer_id: Optional[str] = Field(default=None, description="The 6-digit Customer ID") # ✅ ADDED
 
     policy_start_date: str
     incident_date: str
@@ -98,23 +93,7 @@ class PredictOut(BaseModel):
     fraud_prediction: int
     fraud_probability: float
     Policy_id: str
-    reason_sentences: str  # <-- sentences only
-
-# -------------------- DIAGNOSTICS --------------------
-@router.get("/predict/health")
-def predict_health():
-    return {
-        "artifacts_dir": str(ARTIFACTS_DIR),
-        "model_path_exists": MODEL_PATH.exists(),
-        "threshold_path_exists": THRESHOLD_PATH.exists(),
-        "bundle_loaded": BUNDLE is not None,
-        "has_model": (BUNDLE is not None) and ("model" in BUNDLE),
-        "has_imputer": (BUNDLE is not None) and ("imputer" in BUNDLE),
-        "has_features": (BUNDLE is not None) and ("features" in BUNDLE),
-        "features_count": (len(BUNDLE.get("features", [])) if BUNDLE else 0),
-        "has_te_state": TE_STATE is not None,
-        "threshold": float(THRESHOLD.get("threshold", 0.5)),
-    }
+    reason_sentences: str
 
 # -------------------- PREDICTION --------------------
 @router.post("/predict", response_model=PredictOut)
@@ -123,65 +102,60 @@ def predict(data: PredictIn, request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="Model artifacts not loaded")
 
     cid = request.headers.get("x-request-id", str(ObjectId()))
-    logger.info("[PREDICT][%s] Received payload", cid)
+    logger.info("[PREDICT][%s] Processing Request", cid)
 
     try:
-        # ---- Normalize payload first (Policy vs Policy_id etc.) ----
+        # ---- 1. NORMALIZE PAYLOAD ----
         raw = data.model_dump()
-        policy_id = (
-            raw.get("Policy_id")
-            or raw.get("Policy")
-            or raw.get("policy_id")
-            or raw.get("Policy ID")
-            or raw.get("policyId")
-        )
-        if isinstance(policy_id, str):
-            policy_id = policy_id.strip()
-        if not policy_id:
-            policy_id = "UNKNOWN"
-        raw["Policy_id"] = policy_id
+        policy_id = raw.get("Policy_id") or "UNKNOWN"
+        customer_id = raw.get("customer_id")
 
-        # ---- Build DataFrame ----
+        # ✅ CRITICAL FIX: BACKUP LOOKUP
+        # If the frontend didn't send customer_id, we find it in the Insurance DB via Policy_id
+        if not customer_id and policy_id != "UNKNOWN":
+            user_record = insurance_col.find_one({"policy_id": policy_id})
+            if user_record:
+                customer_id = user_record.get("customer_id")
+
+        # ---- 2. BUILD DATAFRAME & ENGINEER FEATURES ----
         df = pd.DataFrame([raw])
-
-        # ---- Feature engineering + target encoding ----
         df_eng = engineer_features(df)
         df_te = apply_te_from_state(df_eng, TE_STATE)
 
-        # ---- Ensure model features ----
         required_feats = BUNDLE["features"]
         for col in required_feats:
             if col not in df_te.columns:
                 df_te[col] = np.nan
 
-        # ---- Predict ----
+        # ---- 3. PREDICT ----
         X_imp = BUNDLE["imputer"].transform(df_te[required_feats])
         proba = float(BUNDLE["model"].predict_proba(X_imp)[0][1])
         threshold = float(THRESHOLD.get("threshold", 0.5))
         pred = int(proba >= threshold)
 
-        # ---- Reasons (sentences paragraph only) ----
+        # ---- 4. REASONS ----
         reasons_text = reason_sentences(df_eng.iloc[0])
 
-        logger.info(
-            "[PREDICT][%s] proba=%.6f threshold=%.6f pred=%s policy=%s",
-            cid, proba, threshold, pred, policy_id
-        )
+        logger.info("[PREDICT][%s] Result: pred=%s | proba=%.4f | policy=%s", cid, pred, proba, policy_id)
 
-        # ---- Log only when fraud ----
+        # ---- 5. LOG TO MONGODB (INCLUDING CUSTOMER_ID) ----
         if pred == 1:
             fraud_logs.update_one(
                 {"Policy_id": policy_id},
                 {
                     "$set": {
+                        "Policy_id": policy_id,
+                        "customer_id": str(customer_id) if customer_id else "UNKNOWN", # ✅ FIXED: Saved here!
                         "probability": proba,
-                        "reasons": reasons_text,  # sentences only
+                        "reasons": reasons_text,
                         "timestamp": now_utc_iso(),
-                        "Policy_id": policy_id
+                        "class": 1, # Used by Admin filter
+                        "status": "Pending" 
                     }
                 },
                 upsert=True,
             )
+            logger.info("[FRAUD_DETECTED] Logged for Customer: %s", customer_id)
 
         return {
             "fraud_prediction": pred,
@@ -191,7 +165,5 @@ def predict(data: PredictIn, request: Request) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        logger.exception("[PREDICT][%s] Error during prediction: %r", cid, e)
-        if os.getenv("DEBUG_PREDICT") == "1":
-            raise HTTPException(status_code=400, detail=f"Predict error: {repr(e)}")
-        raise HTTPException(status_code=400, detail="Failed to compute prediction")
+        logger.exception("[PREDICT][%s] Error: %r", cid, e)
+        raise HTTPException(status_code=400, detail="Prediction logic failed")
