@@ -1,12 +1,21 @@
-@app.post("/notifications/add")
-def add_notification(data: NotificationIn):
-    notification_doc = {
-        "recipient_id": data.recipient_id,
-        "message": data.message,
-        "link": data.link,
-        "status": data.status,
-        "read": False, # Initial state
-        "timestamp": datetime.utcnow().isoformat()
-    }
-    db.notifications.insert_one(notification_doc)
-    return {"message": "Notification dispatched"}
+{
+  "policy_id": "POL_APPROVE_003",
+  "age": 41,
+  "policy_tenure_years": 6.8,
+  "prior_claims_count": 0,
+  "incident_severity": "Low",
+  "region_risk_level": "Low",
+  "bmi": 24.6,
+  "bloodpressure": 72,
+  "diabetes": 0,
+  "hereditary_diseases": "NoDisease",
+  "smoker": 0,
+  "regular_ex": 1,
+  "weight": 70,
+  "health_risk_score": 1,
+  "policy_coverage_details": "Individual",
+  "sum_assured": 1000000,
+  "premium_amount": 42000,
+  "payment_frequency": "Annual",
+  "gender": "Female"
+}
