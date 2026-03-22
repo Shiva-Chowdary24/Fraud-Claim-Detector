@@ -70,9 +70,9 @@ function AmountPredict() {
         ...formData
       };
 
-      const res = await API.post("/predict-payout", payload);
+      const res = await API.post("/calculate-payout", payload);
       
-      setPredictedAmount(res.data.amount || 5000); // Fallback for demo
+      setPredictedAmount(res.data.amount); // Fallback for demo
       setShowSuccess(true);
       triggerConfetti();
 
