@@ -1,263 +1,390 @@
-import React, { useEffect, useState } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import API from "../services/api";
 import CustSidebar from "../components/CustSidebar";
 import CustNavbar from "../components/CustNavbar";
-import API from "../services/api";
-import {
-  MessageSquare,
-  Clock,
-  CheckCircle2,
-  HelpCircle,
-  Loader2,
-  AlertCircle,
-  RefreshCw,
-  Info,
-} from "lucide-react";
+import { AlertCircle, DollarSign, X, ShieldAlert, Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
 
-function CustSupportHistory() {
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [debug, setDebug] = useState({
-    email: "",
-    encodedEmail: "",
-    url: "",
-    lastFetchedAt: "",
+/** * Reusable Date Input to match your dark theme 
+ */
+const DateInput = ({ name, value, onChange, placeholder }) => (
+  <div className="flex flex-col gap-1">
+    <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest text-left">{placeholder}</label>
+    <input
+      type={value ? "date" : "text"}
+      name={name}
+      value={value || ""}
+      onChange={onChange}
+      onFocus={(e) => (e.target.type = "date")}
+      onBlur={(e) => !e.target.value && (e.target.type = "text")}
+      placeholder={placeholder}
+      className="bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+      required
+    />
+  </div>
+);
+
+function ClaimAmount() {
+  const navigate = useNavigate();
+  
+  // UI States
+  const [submitting, setSubmitting] = useState(false);
+  const [isSuspicious, setIsSuspicious] = useState(false);
+  
+  // Form State (12+ Fields)
+  const [form, setForm] = useState({
+    Policy_id: "",
+    policy_start_date: "",
+    incident_date: "",
+    report_date: "",
+    annual_premium: "",
+    deductible: "",
+    claim_amount: "",
+    payment_method: "",
+    channel: "",
+    police_reported: "",
+    injury_severity: "",
+    num_prior_claims: "",
   });
 
-  const fetchHistory = async () => {
-    setLoading(true);
+  const handleChange = (e) => {
+    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    if (isSuspicious) setIsSuspicious(false);
+  };
+
+  /**
+   * Main Submission Logic with Automatic Customer ID Injection
+   */
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+
+    // ✅ STEP 1: Get the 6-digit ID automatically from the user's login session
+    const autoID = localStorage.getItem("customer_id");
+
+    // ✅ STEP 2: Create the payload with the auto-injected ID
+    const payload = {
+      ...form, 
+      customer_id: autoID // Automatic injection for backend Fraud_Logs
+    };
+
     try {
-      // 1) Try to read email from localStorage
-      let rawEmail = localStorage.getItem("user_email");
-      let email = (rawEmail || "").trim().toLowerCase();
+      // 1. Send data to Fraud Prediction Model
+      const res = await API.post("/predict", payload);
+      
+      console.log("Prediction Success:", res.data);
 
-      // 2) Fallback: resolve email by customer_id from backend if missing
-      if (!email) {
-        const rawCid = localStorage.getItem("customer_id");
-        const customerId = (rawCid || "").trim();
-        if (customerId) {
-          try {
-            const resolveRes = await API.get(
-              `/customer/resolve-email/${encodeURIComponent(customerId)}`
-            );
-            email = (resolveRes?.data?.email || "").trim().toLowerCase();
-            if (email) {
-              localStorage.setItem("user_email", email); // cache for next time
-            }
-          } catch (e) {
-            // silently continue; we'll show a toast below if we still don't have email
-          }
-        }
+      // ✅ THE CONNECTION LOGIC
+      // If Fraud Prediction is 0 (Safe)
+      if (res.data.fraud_prediction === 0) {
+        toast.success("AI Analysis: Claim Verified");
+        navigate("/customer/amount-predict", { 
+          state: { autoApproved: true,
+            ...form,
+            policyId:form.Policy_id,
+            claimAmount:(form.claim_amount) } 
+        });
+      } 
+      // If Fraud Prediction is 1 (Suspicious)
+      else {
+        setIsSuspicious(true);
+        toast.warning("Risk Flagged: Awaiting Admin Review");
       }
-
-      if (!email) {
-        toast.error("User email not found. Please log in again.");
-        setHistory([]);
-        setDebug((d) => ({
-          ...d,
-          email: "",
-          encodedEmail: "",
-          url: "",
-          lastFetchedAt: new Date().toLocaleString(),
-        }));
-        return;
-      }
-
-      // 3) Fetch history using normalized + encoded email
-      const encodedEmail = encodeURIComponent(email);
-      const path = `/customer/queries/${encodedEmail}`;
-      const url = API?.defaults?.baseURL ? API.defaults.baseURL + path : path;
-
-      const res = await API.get(path);
-      const data = Array.isArray(res.data) ? res.data : [];
-
-      setHistory(data);
-      setDebug({
-        email,
-        encodedEmail,
-        url,
-        lastFetchedAt: new Date().toLocaleString(),
-      });
     } catch (err) {
-      console.error("Fetch error:", err);
-      toast.error("Could not load support history.");
-      setHistory([]);
+      console.error("Verification Engine Failure", err);
+      toast.error("Error linking Customer ID to Fraud Log");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  useEffect(() => {
-    fetchHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const cardStyle =
-    "bg-[#111e32]/60 backdrop-blur-md border border-white/5 rounded-[2rem] p-8 shadow-xl mb-6 transition-all hover:border-blue-500/20";
+  // Styling Constants
+  const selectClass = "bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none appearance-none cursor-pointer mt-5";
+  const inputClass = "bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-500";
 
   return (
-    <div className="flex min-h-screen bg-[#0a1628] text-slate-200 font-sans">
+    <div className="flex min-h-screen bg-[#0a1628] font-mono text-white">
       <CustSidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-hidden">
         <CustNavbar />
-        <main className="p-10 max-w-5xl mx-auto w-full text-left">
-          {/* Header + Manual Refresh */}
-          <header className="mb-8">
-            <div className="flex items-center justify-between">
-              <h1 className="text-4xl font-black text-white tracking-tighter italic uppercase flex items-center gap-3">
-                <Clock className="text-blue-500" size={32} /> Support History
-              </h1>
-              <button
-                onClick={fetchHistory}
-                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest"
-              >
-                <RefreshCw size={14} />
-                Refresh
-              </button>
-            </div>
-            <p className="text-slate-500 text-[10px] tracking-[0.2em] mt-2 uppercase font-bold">
-              Tracking your communication with our underwriting team
-            </p>
-          </header>
+        
+        <main className="p-8 overflow-y-auto">
+          <div className="max-w-4xl mx-auto border border-white p-1">
+            
+            {isSuspicious ? (
+              /* --- SUSPICIOUS ALERT VIEW --- */
+              <div className="bg-black border border-white p-16 relative animate-in zoom-in duration-300">
+                <button 
+                  onClick={() => setIsSuspicious(false)} 
+                  className="absolute top-4 right-4 border border-white p-2 hover:bg-white hover:text-black transition-all"
+                >
+                  <X size={24} />
+                </button>
 
-          {/* Debug Strip */}
-          <div className="mb-6 bg-black/30 border border-white/5 rounded-2xl p-4 text-xs">
-            <div className="flex items-center gap-2 mb-2">
-              <Info className="text-slate-400" size={14} />
-              <span className="text-slate-400 font-bold uppercase tracking-widest">
-                Debug
-              </span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-slate-400">
-              <div>
-                <span className="text-slate-500">Email: </span>
-                <code className="text-slate-300">{debug.email || "-"}</code>
-              </div>
-              <div>
-                <span className="text-slate-500">Encoded: </span>
-                <code className="text-slate-300">{debug.encodedEmail || "-"}</code>
-              </div>
-              <div className="md:col-span-2">
-                <span className="text-slate-500">GET: </span>
-                <code className="text-slate-300 break-all">{debug.url || "-"}</code>
-              </div>
-              <div className="md:col-span-2">
-                <span className="text-slate-500">Records: </span>
-                <code className="text-slate-300">{history.length}</code>
-                <span className="text-slate-500 ml-4">Last Fetched: </span>
-                <code className="text-slate-300">{debug.lastFetchedAt}</code>
-              </div>
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-20">
-              <Loader2 className="animate-spin text-blue-500 mb-4" size={40} />
-              <p className="text-slate-500 text-xs uppercase tracking-widest">
-                Accessing Archives...
-              </p>
-            </div>
-          ) : history && history.length > 0 ? (
-            <div className="space-y-4">
-              {history.map((item) => (
-                <div key={item._id} className={cardStyle}>
-                  {/* Status & Date Header */}
-                  <div className="flex justify-between items-start mb-6">
-                    <div>
-                      <span
-                        className={`px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.15em] border ${
-                          item.status === "Resolved"
-                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                            : "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                        }`}
-                      >
-                        {item.status}
-                      </span>
-                      <h3 className="text-xl font-bold text-white mt-4 tracking-tight">
-                        {item.subject || "General Inquiry"}
-                      </h3>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-slate-600 text-[9px] font-black uppercase tracking-tighter">
-                        Submitted On
-                      </p>
-                      <p className="text-slate-400 text-xs font-bold">
-                        {item.timestamp
-                          ? new Date(item.timestamp).toLocaleDateString()
-                          : "-"}
+                <div className="text-center space-y-8">
+                  <ShieldAlert size={80} className="mx-auto text-red-500" />
+                  <div className="space-y-4">
+                    <h2 className="text-3xl font-black uppercase text-red-500 tracking-tighter">Security Alert</h2>
+                    <div className="p-6 border border-red-500 bg-red-500/5">
+                      <p className="text-lg uppercase font-bold text-white italic">It seems that your claim is suspicious.</p>
+                      <p className="text-[10px] text-gray-400 mt-3 uppercase tracking-[0.3em] font-bold text-center">
+                        Please wait until admin reviews the claim.
                       </p>
                     </div>
                   </div>
-
-                  {/* Original Query */}
-                  <div className="bg-black/20 p-5 rounded-2xl border border-white/5 relative">
-                    <MessageSquare
-                      size={14}
-                      className="absolute -top-2 -left-2 text-slate-700 bg-[#0a1628] rounded-full"
-                    />
-                    <p className="text-slate-400 text-sm leading-relaxed italic">
-                      {`"${item.query}"`}
-                    </p>
-                  </div>
-
-                  {/* Admin Reply Section */}
-                  {typeof item.reply === "string" && item.reply.trim().length > 0 ? (
-                    <div className="mt-8 pt-8 border-t border-white/5">
-                      <div className="flex items-center gap-2 mb-4">
-                        <div className="bg-blue-500/20 p-1.5 rounded-lg">
-                          <CheckCircle2 size={14} className="text-blue-400" />
-                        </div>
-                        <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
-                          Resolution Details
-                        </span>
-                      </div>
-                      <div className="bg-blue-500/5 p-6 rounded-2xl border border-blue-500/10">
-                        <p className="text-white text-sm leading-relaxed font-medium">
-                          {item.reply}
-                        </p>
-                      </div>
-                      <div className="mt-4 flex justify-end">
-                        <p className="text-slate-600 text-[9px] uppercase font-bold tracking-tighter italic">
-                          Closed:{" "}
-                          {new Date(item.resolved_at || item.timestamp).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mt-6 flex items-center gap-2 text-slate-600">
-                      <AlertCircle size={14} />
-                      <p className="text-[10px] font-bold uppercase tracking-widest italic">
-                        Awaiting response from Underwriter
-                      </p>
-                    </div>
-                  )}
+                  <p className="text-[8px] text-gray-800 uppercase pt-4 tracking-[0.5em]">Auth_Failure_Code: FLAG_01</p>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <>
-              <div className="bg-[#111e32]/40 border border-dashed border-slate-800 rounded-[3rem] p-20 text-center">
-                <HelpCircle className="mx-auto text-slate-800 mb-4" size={50} />
-                <p className="text-slate-600 font-bold uppercase tracking-widest text-sm">
-                  No support tickets found in your account.
-                </p>
               </div>
+            ) : (
+              /* --- DATA ENTRY FORM VIEW --- */
+              <div className="bg-[#111e32] border border-white shadow-2xl">
+                <div className="bg-[#1a2c46] p-6 text-white flex items-center gap-4 border-b border-white">
+                  <div className="bg-black p-3 border border-gray-700 text-left">
+                    <DollarSign className="text-blue-400" size={24} />
+                  </div>
+                  <div className="text-left">
+                    <h2 className="text-xl font-bold uppercase tracking-widest">Policy Claim Request</h2>
+                    <p className="text-[10px] text-slate-400 uppercase">Input all relevant metrics for AI verification.</p>
+                  </div>
+                </div>
 
-              {/* Raw data preview for quick sanity */}
-              <div className="mt-6 text-xs text-slate-400">
-                <p className="mb-2 font-bold uppercase tracking-widest flex items-center gap-2">
-                  <Info size={14} /> Debug: Raw Data Preview
-                </p>
-                <pre className="bg-black/30 border border-white/5 rounded-xl p-4 overflow-auto">
-                  {JSON.stringify(history, null, 2)}
-                </pre>
+                <form onSubmit={handleSubmit} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 text-left">
+                  
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Policy ID</label>
+                    <input type="text" name="Policy_id" placeholder="Enter ID" onChange={handleChange} value={form.Policy_id} className={inputClass} required />
+                  </div>
+
+                  <DateInput name="policy_start_date" value={form.policy_start_date} onChange={handleChange} placeholder="Policy Start Date" />
+                  <DateInput name="incident_date" value={form.incident_date} onChange={handleChange} placeholder="Incident Occurrence" />
+                  <DateInput name="report_date" value={form.report_date} onChange={handleChange} placeholder="Official Report Date" />
+                  
+                  <div className="flex flex-col gap-1 text-left">
+                    <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Annual Premium</label>
+                    <input type="number" name="annual_premium" placeholder="0.00" required onChange={handleChange} value={form.annual_premium} className={inputClass} />
+                  </div>
+                  <div className="flex flex-col gap-1 text-left">
+                    <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Deductible</label>
+                    <input type="number" name="deductible" placeholder="0.00" required onChange={handleChange} value={form.deductible} className={inputClass} />
+                  </div>
+                  <div className="flex flex-col gap-1 text-left">
+                    <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Requested Claim Amount</label>
+                    <input type="number" name="claim_amount" placeholder="0.00" required onChange={handleChange} value={form.claim_amount} className={inputClass} />
+                  </div>
+                  
+                  <select name="payment_method" required onChange={handleChange} value={form.payment_method} className={selectClass}>
+                    <option value="">Payment Method</option>
+                    <option>Cash</option><option>Crypto</option><option>Bank Transfer</option>
+                  </select>
+
+                  <select name="channel" required onChange={handleChange} value={form.channel} className={selectClass}>
+                    <option value="">Submission Channel</option>
+                    <option>Agent</option><option>Online</option>
+                  </select>
+
+                  <select name="police_reported" required onChange={handleChange} value={form.police_reported} className={selectClass}>
+                    <option value="">Police Reported?</option>
+                    <option>Yes</option><option>No</option>
+                  </select>
+
+                  <select name="injury_severity" required onChange={handleChange} value={form.injury_severity} className={selectClass}>
+                    <option value="">Injury Severity</option>
+                    <option>None</option><option>Normal</option><option>Critical</option><option>Major</option>
+                  </select>
+
+                  <div className="flex flex-col gap-1 md:col-span-2 text-left">
+                    <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Number of Prior Claims</label>
+                    <input type="number" name="num_prior_claims" placeholder="0" required onChange={handleChange} value={form.num_prior_claims} className={inputClass} />
+                  </div>
+
+                  <div className="md:col-span-2 pt-6">
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="w-full border border-white py-5 text-lg font-black uppercase hover:bg-white hover:text-black transition-all flex justify-center items-center gap-4 group"
+                    >
+                      {submitting ? (
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="animate-spin" size={20} /> ANALYZING_DATA...
+                        </div>
+                      ) : (
+                        <>Verify and Initiate Claim <ArrowRight size={20} className="group-hover:translate-x-2 transition-transform" /></>
+                      )}
+                    </button>
+                  </div>
+                </form>
               </div>
-            </>
-          )}
+            )}
+          </div>
         </main>
       </div>
     </div>
   );
 }
 
-export default CustSupportHistory;s
+const ArrowRight = ({ size, className }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M5 12h14M12 5l7 7-7 7"/>
+  </svg>
+);
+
+export default ClaimAmount;import React, { useState, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import API from "../services/api";
+import confetti from "canvas-confetti"; 
+import { ShieldCheck, ArrowRight, X, Calculator, Loader2, Sparkles, CheckCircle } from "lucide-react";
+import { toast } from "react-toastify";
+
+function ClaimAmountPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  // Handshake from ClaimAmount.js
+  const [view, setView] = useState(location.state?.autoApproved ? "approved" : "initial"); 
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  // ✅ Added Security/Redirect logic: If user refreshes or lacks state, go back
+  useEffect(() => {
+    if (!location.state?.autoApproved && view !== "prediction") {
+      navigate("/customer/claim-amount");
+    }
+  }, [location, navigate, view]);
+
+  const handlePredict = async () => {
+    setLoading(true);
+    try {
+      // ✅ Added payload data from state
+      const payload = {
+        ...location.state,
+        policy_id: location.state?.policyId,
+        customer_id: localStorage.getItem("customer_id"),
+        claim_amount: parseFloat(location.state?.claimAmount || 0),
+        total_claim_amount:location.state?.total_claim_amount,
+        plan_type:location.state?.plan_type
+      };
+
+      // ✅ Updated to match your new payout backend endpoint
+      let res;
+      if (payload.plan_type==="Health"){
+        res=await API.post("/predict-health",payload);
+      }else{
+        res=await API.post("/predict-auto",payload);
+      }
+      setResult(res.data.amount);
+      setView("prediction");
+
+      // ✅ 1. TRIGGER PARTY BLAST
+      triggerConfetti();
+    setResult(res.data.amount);
+    setView("prediction");
+    toast.info("Showing estimated payout.");
+    setTimeout(()=>{
+        navigate("/customer/claim-policies");
+    },3000);
+    }catch(err){
+        console.error("Prediction Error:",err.response?.data || err.message);
+        toast.error("Prediction failed. Please try again.")
+    }
+    finally{
+        setLoading(false);
+    }
+};
+
+  // ✅ Confetti Helper Function
+  const triggerConfetti = () => {
+    confetti({
+      particleCount: 150,
+      spread: 70,
+      origin: { y: 0.6 },
+      colors: ["#3b82f6", "#10b981", "#ffffff"]
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0f172a] text-slate-200 p-6 font-sans flex items-center justify-center">
+      <div className="w-full max-w-md bg-[#1e293b] border border-slate-700 rounded-3xl shadow-2xl p-8 relative overflow-hidden text-center">
+        
+        {/* Decorative background glow */}
+        <div className="absolute -top-24 -left-24 w-48 h-48 bg-blue-500/10 blur-3xl rounded-full"></div>
+
+        {/* --- VIEW: AUTO-APPROVED --- */}
+        {view === "approved" && (
+          <div className="text-center space-y-6 animate-in fade-in zoom-in duration-500">
+            <div className="flex justify-center">
+              <div className="bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20">
+                <ShieldCheck size={48} className="text-emerald-400" />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold text-white tracking-tight text-center">Claim Auto-Approved</h2>
+              <p className="text-sm text-slate-400 px-4">
+                Our AI engine found no irregularities. You are eligible for an immediate payout estimation.
+              </p>
+            </div>
+
+            <div className="space-y-3 pt-4">
+              <button 
+                onClick={handlePredict} 
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-900/20"
+              >
+                {loading ? <Loader2 className="animate-spin" /> : (
+                  <>
+                    <Sparkles size={18} />
+                    Predict Payout Amount
+                  </>
+                )}
+              </button>
+
+              <button 
+                onClick={() => navigate("/customer/claim-policies")} 
+                className="w-full text-sm text-slate-500 hover:text-slate-300 font-medium py-2 transition-colors flex items-center justify-center gap-1"
+              >
+                No, thanks. I'll do it later.
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* --- VIEW: PREDICTION RESULT (CONGRATULATIONS) --- */}
+        {view === "prediction" && (
+          <div className="text-center space-y-6 animate-in slide-in-from-bottom-8 duration-500">
+            {/* ✅ Added Congratulations UI */}
+            <div className="flex justify-center">
+              <CheckCircle size={60} className="text-emerald-400 animate-bounce" />
+            </div>
+
+            <div className="space-y-1">
+              <h1 className="text-3xl font-black text-white uppercase tracking-tighter">Congratulations!</h1>
+              <p className="text-sm text-emerald-400 font-bold uppercase tracking-widest">Payout Estimation Ready</p>
+            </div>
+
+            <div className="bg-gradient-to-b from-slate-800 to-slate-900 border border-slate-700 rounded-2xl py-10 shadow-inner">
+              <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">The claimable amount is up to</p>
+              <h3 className="text-5xl font-black text-white mt-3 tracking-tighter">
+                <span className="text-blue-500">$</span>{result?.toLocaleString()}
+              </h3>
+            </div>
+
+            <div className="pt-4 space-y-3">
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest animate-pulse">
+                Redirecting to your active policies...
+              </p>
+              <button 
+                onClick={() => navigate("/customer/claim-policies")} 
+                className="w-full text-xs text-blue-400 hover:underline font-bold"
+              >
+                Click here if you aren't redirected
+              </button>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+export default ClaimAmountPage;when details entered in ClaimAmount.js if the claim is not fraud then it is directly asking policy id to predict claimable amountinstead if the claim is false then the claimamountpage should get trigger that it will display dialog box there we choose to predict or no thanks when we choose to predict then it should redirect to amountpredict.js page
