@@ -1,120 +1,23 @@
-from fastapi import FastAPI, Query
-import pandas as pd
-from datetime import datetime
-import joblib
-from pymongo import MongoClient
-
-# ------------------------------------------------------------
-# FastAPI app
-# ------------------------------------------------------------
-app = FastAPI(title="Insurance Claim Prediction API")
-
-# ------------------------------------------------------------
-# Load trained models
-# ------------------------------------------------------------
-approval_model = joblib.load("models/approval_calibrated.pkl")
-amount_model = joblib.load("models/amount_model.pkl")
-
-# ------------------------------------------------------------
-# MongoDB connection (ONLY FOR REJECTED LOGS)
-# ------------------------------------------------------------
-MONGO_URI = "mongodb://localhost:27017"
-client = MongoClient(MONGO_URI)
-
-db = client["Insurancedb"]
-rejected_claims = db["Failed_Claims"]
-
-# ------------------------------------------------------------
-# Hard rejection rules (GUARANTEED REJECT)
-# ------------------------------------------------------------
-def hard_reject_rules(data: dict):
-    reasons = []
-
-    if data.get("policy_tenure_years", 0) < 0.5:
-        reasons.append("Policy tenure too short")
-
-    if data.get("prior_claims_count", 0) >= 3:
-        reasons.append("Too many prior claims")
-
-    if (
-        data.get("incident_severity") == "High"
-        and data.get("region_risk_level") == "High"
-    ):
-        reasons.append("High severity claim in high risk region")
-
-    if data.get("health_risk_score", 0) >= 5:
-        reasons.append("Very high health risk score")
-
-    if data.get("smoker") == 1 and data.get("diabetes") == 1:
-        reasons.append("Smoker with chronic illness")
-
-    return reasons
-
-# ------------------------------------------------------------
-# POST: Predict claim
-# ------------------------------------------------------------
-@app.post("/predict")
-def predict_claim(data: dict):
-    """
-    Only REJECTED claims are stored in MongoDB.
-    """
-
-    policy_id = data.get("policy_id")
-
-    # 1️⃣ HARD RULE CHECK
-    rejection_reasons = hard_reject_rules(data)
-
-    if rejection_reasons:
-        result = {
-            "policy_id": policy_id,
-            "approved": "No",
-            "approval_probability": 0.0,
-            "claimable_amount": 0.0,
-            "rejection_reasons": rejection_reasons
-        }
-
-        rejected_claims.insert_one({
-            "policy_id": policy_id,
-            "input": data,
-            "prediction": result,
-            "rejected_by": "RULES",
-            "timestamp": datetime.utcnow()
-        })
-
-        return result
-
-    # 2️⃣ ML CHECK
-    model_input = data.copy()
-    model_input.pop("policy_id", None)
-
-    input_df = pd.DataFrame([model_input])
-    approval_prob = approval_model.predict_proba(input_df)[0, 1]
-
-    if approval_prob < 0.5:
-        result = {
-            "policy_id": policy_id,
-            "approved": "No",
-            "approval_probability": round(float(approval_prob), 4),
-            "claimable_amount": 0.0,
-            "rejection_reasons": ["Low ML approval probability"]
-        }
-
-        rejected_claims.insert_one({
-            "policy_id": policy_id,
-            "input": data,
-            "prediction": result,
-            "rejected_by": "ML",
-            "timestamp": datetime.utcnow()
-        })
-
-        return result
-
-    # 3️⃣ APPROVED (NO LOGGING)
-    amount = amount_model.predict(input_df)[0]
-
-    return {
-        "policy_id": policy_id,
-
-        "claimable_amount": round(float(amount), 2)
-    }
-
+ File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 130, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 116, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 381, in app
+    assert isinstance(file_stack, AsyncExitStack), (
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: fastapi_middleware_astack not found in request scope
+INFO: 
