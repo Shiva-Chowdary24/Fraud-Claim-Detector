@@ -1,34 +1,120 @@
- 2026-03-23 01:37:11,131 | INFO | predict | [STARTUP] Loading model artifacts from C:\Users\manda.shiva\Downloads\fraud_detect\backend\artifacts
-2026-03-23 01:37:12,556 | INFO | predict | [STARTUP] Artifacts loaded. Features: ['insured_age', 'num_prior_claims', 'policy_tenure_months', 'life_sum_assured', 'annual_premium', 'deductible', 'claim_amount', 'days_to_report', 'policy_age_days_at_incident', 'incident_weekday', 'incident_month', 'report_weekday', 'report_month', 'incident_hour', 'claim_to_premium_ratio', 'deductible_to_claim_ratio', 'premium_per_month', 'prior_claim_rate', 'vehicle_age', 'property_age', 'is_new_policy_90d', 'is_late_report_14d', 'is_online', 'is_cash_or_crypto', 'police_reported_flag', 'injury_severe_flag', 'te_policy_type', 'te_coverage_type', 'te_customer_segment', 'te_channel', 'te_payment_method', 'te_geo_region', 'te_property_type', 'te_diagnosis_group', 'te_provider_specialty', 'te_life_product', 'te_vehicle_make', 'te_vehicle_model', 'te_injury_severity', 'te_police_reported']
-✅ Health Payout Model Loaded
-INFO:     Started server process [15108]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     127.0.0.1:49170 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51087 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50716 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60749 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49170 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51087 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50716 - "OPTIONS /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51658 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59292 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55082 - "GET /notifications/get/916494 HTTP/1.1" 200 OK
-WARNING:  WatchFiles detected changes in 'routes\payout.py'. Reloading...
- INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.
-INFO:     Finished server process [15108]
-2026-03-23 01:38:09,006 | INFO | predict | [STARTUP] Loading model artifacts from C:\Users\manda.shiva\Downloads\fraud_detect\backend\artifacts
-2026-03-23 01:38:10,323 | INFO | predict | [STARTUP] Artifacts loaded. Features: ['insured_age', 'num_prior_claims', 'policy_tenure_months', 'life_sum_assured', 'annual_premium', 'deductible', 'claim_amount', 'days_to_report', 'policy_age_days_at_incident', 'incident_weekday', 'incident_month', 'report_weekday', 'report_month', 'incident_hour', 'claim_to_premium_ratio', 'deductible_to_claim_ratio', 'premium_per_month', 'prior_claim_rate', 'vehicle_age', 'property_age', 'is_new_policy_90d', 'is_late_report_14d', 'is_online', 'is_cash_or_crypto', 'police_reported_flag', 'injury_severe_flag', 'te_policy_type', 'te_coverage_type', 'te_customer_segment', 'te_channel', 'te_payment_method', 'te_geo_region', 'te_property_type', 'te_diagnosis_group', 'te_provider_specialty', 'te_life_product', 'te_vehicle_make', 'te_vehicle_model', 'te_injury_severity', 'te_police_reported']
-✅ Health Payout Model Loaded
-INFO:     Started server process [24344]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
+from fastapi import FastAPI, Query
+import pandas as pd
+from datetime import datetime
+import joblib
+from pymongo import MongoClient
+
+# ------------------------------------------------------------
+# FastAPI app
+# ------------------------------------------------------------
+app = FastAPI(title="Insurance Claim Prediction API")
+
+# ------------------------------------------------------------
+# Load trained models
+# ------------------------------------------------------------
+approval_model = joblib.load("models/approval_calibrated.pkl")
+amount_model = joblib.load("models/amount_model.pkl")
+
+# ------------------------------------------------------------
+# MongoDB connection (ONLY FOR REJECTED LOGS)
+# ------------------------------------------------------------
+MONGO_URI = "mongodb://localhost:27017"
+client = MongoClient(MONGO_URI)
+
+db = client["Insurancedb"]
+rejected_claims = db["Failed_Claims"]
+
+# ------------------------------------------------------------
+# Hard rejection rules (GUARANTEED REJECT)
+# ------------------------------------------------------------
+def hard_reject_rules(data: dict):
+    reasons = []
+
+    if data.get("policy_tenure_years", 0) < 0.5:
+        reasons.append("Policy tenure too short")
+
+    if data.get("prior_claims_count", 0) >= 3:
+        reasons.append("Too many prior claims")
+
+    if (
+        data.get("incident_severity") == "High"
+        and data.get("region_risk_level") == "High"
+    ):
+        reasons.append("High severity claim in high risk region")
+
+    if data.get("health_risk_score", 0) >= 5:
+        reasons.append("Very high health risk score")
+
+    if data.get("smoker") == 1 and data.get("diabetes") == 1:
+        reasons.append("Smoker with chronic illness")
+
+    return reasons
+
+# ------------------------------------------------------------
+# POST: Predict claim
+# ------------------------------------------------------------
+@app.post("/predict")
+def predict_claim(data: dict):
+    """
+    Only REJECTED claims are stored in MongoDB.
+    """
+
+    policy_id = data.get("policy_id")
+
+    # 1️⃣ HARD RULE CHECK
+    rejection_reasons = hard_reject_rules(data)
+
+    if rejection_reasons:
+        result = {
+            "policy_id": policy_id,
+            "approved": "No",
+            "approval_probability": 0.0,
+            "claimable_amount": 0.0,
+            "rejection_reasons": rejection_reasons
+        }
+
+        rejected_claims.insert_one({
+            "policy_id": policy_id,
+            "input": data,
+            "prediction": result,
+            "rejected_by": "RULES",
+            "timestamp": datetime.utcnow()
+        })
+
+        return result
+
+    # 2️⃣ ML CHECK
+    model_input = data.copy()
+    model_input.pop("policy_id", None)
+
+    input_df = pd.DataFrame([model_input])
+    approval_prob = approval_model.predict_proba(input_df)[0, 1]
+
+    if approval_prob < 0.5:
+        result = {
+            "policy_id": policy_id,
+            "approved": "No",
+            "approval_probability": round(float(approval_prob), 4),
+            "claimable_amount": 0.0,
+            "rejection_reasons": ["Low ML approval probability"]
+        }
+
+        rejected_claims.insert_one({
+            "policy_id": policy_id,
+            "input": data,
+            "prediction": result,
+            "rejected_by": "ML",
+            "timestamp": datetime.utcnow()
+        })
+
+        return result
+
+    # 3️⃣ APPROVED (NO LOGGING)
+    amount = amount_model.predict(input_df)[0]
+
+    return {
+        "policy_id": policy_id,
+
+        "claimable_amount": round(float(amount), 2)
+    }
+
