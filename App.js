@@ -27,6 +27,8 @@ import ApplyPolicyForm from "./pages/ApplyPolicyForm";
 import ClaimAmountPage from "./pages/ClaimAmountPage";
 import AmountPredict from "./pages/AmountPredict";
 import ClaimPolicies from "./pages/ClaimPolicies";
+import CustSupportHistory from "./pages/CustSupportHistory";
+
 
 
 function App() {
@@ -59,6 +61,8 @@ function App() {
         <Route path="/customer/predict-claim" element={<ProtectedRoute roleRequired="customer"><ClaimAmountPage /></ProtectedRoute>} />
         <Route path="/customer/amount-predict" element={<ProtectedRoute roleRequired="customer"><AmountPredict /></ProtectedRoute>} />
         <Route path="/customer/claim-policies" element={<ProtectedRoute roleRequired="customer"><ClaimPolicies /></ProtectedRoute>} />
+        <Route path="/customer/support-history" element={<ProtectedRoute roleRequired="customer"><CustSupportHistory /></ProtectedRoute>} />
+        <Route path="/customer/claim-policy" element={<ProtectedRoute roleRequired="customer"><ClaimPolicies/></ProtectedRoute>} />
 
         {/* 404 Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
