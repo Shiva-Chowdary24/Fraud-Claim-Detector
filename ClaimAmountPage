@@ -1,67 +1,27 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import API from "../services/api";
-import confetti from "canvas-confetti"; 
-import { ShieldCheck, ArrowRight, X, Calculator, Loader2, Sparkles, CheckCircle } from "lucide-react";
-import { toast } from "react-toastify";
+import { ShieldCheck, Sparkles, Loader2 } from "lucide-react";
 
 function ClaimAmountPage() {
   const location = useLocation();
   const navigate = useNavigate();
   
   // Handshake from ClaimAmount.js
-  const [view, setView] = useState(location.state?.autoApproved ? "approved" : "initial"); 
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const isApproved = location.state?.autoApproved;
 
-  // ✅ Added Security/Redirect logic: If user refreshes or lacks state, go back
+  // Security Redirect: If user lacks state (refresh), go back to form
   useEffect(() => {
-    if (!location.state?.autoApproved && view !== "prediction") {
-      navigate("/customer/claim-amount");
+    if (!isApproved) {
+      navigate("/customer/predict");
     }
-  }, [location, navigate, view]);
+  }, [isApproved, navigate]);
 
-  const handlePredict = async () => {
-    setLoading(true);
-    try {
-      // ✅ Added payload data from state
-      const payload = {
-        ...location.state,
-        policy_id: location.state?.policyId,
-        customer_id: localStorage.getItem("customer_id"),
-        claim_amount: parseFloat(location.state?.claimAmount || 0)
-      };
-
-      // ✅ Updated to match your new payout backend endpoint
-      let res;
-      if (policyData.plan_type==="Health"){
-        res=await API.post("/predict-health",payload);
-      }else{
-        res=await API.post("/predict-auto",payload);
-      }
-      setResult(res.data.amount);
-      setView("prediction");
-
-      // ✅ 1. TRIGGER PARTY BLAST
-      triggerConfetti();
-    } catch(err){
-        console.log("422 Redirect Blocked by:",err.response?.data)
-    const manualEstimate = parseFloat(location.staet?.claim_amount ||0)*0.85;
-    setResult(manualEstimate);
-    setView("prediction");
-    toast.info("Showing estimated payout.");
-    }finally{
-        setLoading(false);
-    }
-};
-
-  // ✅ Confetti Helper Function
-  const triggerConfetti = () => {
-    confetti({
-      particleCount: 150,
-      spread: 70,
-      origin: { y: 0.6 },
-      colors: ["#3b82f6", "#10b981", "#ffffff"]
+  const handlePredict = () => {
+    // ✅ CONNECTED: Now navigating to the actual prediction page with data
+    navigate("/customer/amount-predict", { 
+      state: { 
+        ...location.state 
+      } 
     });
   };
 
@@ -69,82 +29,39 @@ function ClaimAmountPage() {
     <div className="min-h-screen bg-[#0f172a] text-slate-200 p-6 font-sans flex items-center justify-center">
       <div className="w-full max-w-md bg-[#1e293b] border border-slate-700 rounded-3xl shadow-2xl p-8 relative overflow-hidden text-center">
         
-        {/* Decorative background glow */}
         <div className="absolute -top-24 -left-24 w-48 h-48 bg-blue-500/10 blur-3xl rounded-full"></div>
 
-        {/* --- VIEW: AUTO-APPROVED --- */}
-        {view === "approved" && (
-          <div className="text-center space-y-6 animate-in fade-in zoom-in duration-500">
-            <div className="flex justify-center">
-              <div className="bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20">
-                <ShieldCheck size={48} className="text-emerald-400" />
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <h2 className="text-2xl font-bold text-white tracking-tight text-center">Claim Auto-Approved</h2>
-              <p className="text-sm text-slate-400 px-4">
-                Our AI engine found no irregularities. You are eligible for an immediate payout estimation.
-              </p>
-            </div>
-
-            <div className="space-y-3 pt-4">
-              <button 
-                onClick={handlePredict} 
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-900/20"
-              >
-                {loading ? <Loader2 className="animate-spin" /> : (
-                  <>
-                    <Sparkles size={18} />
-                    Predict Payout Amount
-                  </>
-                )}
-              </button>
-
-              <button 
-                onClick={() => navigate("/customer/claim-policies")} 
-                className="w-full text-sm text-slate-500 hover:text-slate-300 font-medium py-2 transition-colors flex items-center justify-center gap-1"
-              >
-                No, thanks. I'll do it later.
-              </button>
+        <div className="text-center space-y-6 animate-in fade-in zoom-in duration-500">
+          <div className="flex justify-center">
+            <div className="bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20">
+              <ShieldCheck size={48} className="text-emerald-400" />
             </div>
           </div>
-        )}
-
-        {/* --- VIEW: PREDICTION RESULT (CONGRATULATIONS) --- */}
-        {view === "prediction" && (
-          <div className="text-center space-y-6 animate-in slide-in-from-bottom-8 duration-500">
-            {/* ✅ Added Congratulations UI */}
-            <div className="flex justify-center">
-              <CheckCircle size={60} className="text-emerald-400 animate-bounce" />
-            </div>
-
-            <div className="space-y-1">
-              <h1 className="text-3xl font-black text-white uppercase tracking-tighter">Congratulations!</h1>
-              <p className="text-sm text-emerald-400 font-bold uppercase tracking-widest">Payout Estimation Ready</p>
-            </div>
-
-            <div className="bg-gradient-to-b from-slate-800 to-slate-900 border border-slate-700 rounded-2xl py-10 shadow-inner">
-              <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">The claimable amount is up to</p>
-              <h3 className="text-5xl font-black text-white mt-3 tracking-tighter">
-                <span className="text-blue-500">$</span>{result?.toLocaleString()}
-              </h3>
-            </div>
-
-            <div className="pt-4 space-y-3">
-              <p className="text-[10px] text-slate-500 uppercase tracking-widest animate-pulse">
-                Redirecting to your active policies...
-              </p>
-              <button 
-                onClick={() => navigate("/customer/claim-policies")} 
-                className="w-full text-xs text-blue-400 hover:underline font-bold"
-              >
-                Click here if you aren't redirected
-              </button>
-            </div>
+          
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold text-white tracking-tight text-center">Claim Auto-Approved</h2>
+            <p className="text-sm text-slate-400 px-4">
+              Our AI engine found no irregularities. You are eligible for an immediate payout estimation.
+            </p>
           </div>
-        )}
 
+          <div className="space-y-3 pt-4">
+            <button 
+              onClick={handlePredict} 
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-900/20"
+            >
+              <Sparkles size={18} />
+              Predict Payout Amount
+            </button>
+
+            <button 
+              onClick={() => navigate("/customer/claim-policies")} 
+              className="w-full text-sm text-slate-500 hover:text-slate-300 font-medium py-2 transition-colors flex items-center justify-center gap-1"
+            >
+              No, thanks. I'll do it later.
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
