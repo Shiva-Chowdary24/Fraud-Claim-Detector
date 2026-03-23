@@ -1,14 +1,6 @@
-@router.get("/admin/queries")
-def get_queries(role: str = Header(None)):
-    verify_admin(role)
-    results = list(queries.find())
-    for r in results:
-        r["_id"] = str(r["_id"])
-    return results
-
-@router.post("/query")
-def ask_query(data: dict):
-    data["status"] = "Pending"
-    data["timestamp"] = now()
-    queries.insert_one(data)
-    return {"message": "Query sent"}
+File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\anyio\_backends\_asyncio.py", line 2502, in run_sync_in_worker_thread
+    print(f"DEBUG:Received customer_id:{data.customer_id}(Type:{type(data.customer_id)})")
+                                        ^^^^^^^^^^^^^^^^
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\pydantic\main.py", line 1026, in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+AttributeError: 'QueryRequest' object has no attribute 'customer_id'
