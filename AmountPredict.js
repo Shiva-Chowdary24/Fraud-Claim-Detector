@@ -1,25 +1,33 @@
-import React, { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
 import CustSidebar from "../components/CustSidebar";
 import CustNavbar from "../components/CustNavbar";
 import API from "../services/api";
-import { CheckCircle, ShieldCheck, Search, Loader2 } from "lucide-react";
+import {
+  CheckCircle,
+  Loader2,
+  Search,
+  HeartPulse,
+  ShieldCheck,
+  Calculator,
+  Info
+} from "lucide-react";
 import { toast } from "react-toastify";
-
+ 
 function AmountPredict() {
   const navigate = useNavigate();
-  const location = useLocation();
-
-  const [policyId, setPolicyId] = useState("");
-  const [policyData, setPolicyData] = useState(null);
+ 
+  const [policyIdInput, setPolicyIdInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [predictedAmount, setPredictedAmount] = useState(0);
-
+  const [predictedAmount, setPredictedAmount] = useState(null);
+  const [isFetched, setIsFetched] = useState(false);
+ 
   const [formData, setFormData] = useState({
+    policy_id: "",
     age: "",
+    policy_tenure_years: "",     // ✅ fetched from DB
     prior_claims_count: "",
     incident_severity: "",
     region_risk_level: "",
@@ -32,257 +40,246 @@ function AmountPredict() {
     weight: "",
     health_risk_score: "",
     policy_coverage_details: "",
+    sum_assured: "",             // ✅ fetched from DB
+    annual_premium: "",          // ✅ fetched from DB
     payment_frequency: "",
-    gender: "",
-    vehicle_type: "",
-    vehicle_tier: "",
-    vehicle_subtype: ""
+    gender: ""
   });
-
-  useEffect(() => {
-    if (!location.state?.autoApproved) {
-      navigate("/customer/predict");
-    }
-  }, []);
-
-  // 🔍 FETCH POLICY
+ 
+  const inputClass =
+    "w-full bg-[#0a0f1a] border border-slate-800 p-2.5 rounded-xl text-white text-sm outline-none focus:ring-2 focus:ring-blue-500/50 transition-all placeholder:text-slate-600 shadow-inner";
+ 
+  const labelClass =
+    "text-[10px] font-bold text-slate-500 uppercase ml-1 mb-1 block tracking-wider";
+ 
+  // --------------------------------------------------
+  // FETCH POLICY DETAILS (ONLY 3 FIELDS)
+  // --------------------------------------------------
   const handleLookup = async () => {
-    if (!policyId) return;
-
+    if (!policyIdInput) return toast.error("Enter Policy ID");
     setLoading(true);
+ 
     try {
-      const res = await API.get(`/customer/policy-details/${policyId}`);
-      setPolicyData(res.data);
-      toast.success(`Policy Found: ${res.data.plan_type}`);
-    } catch {
+      const res = await API.get(`/customer/policy-details/${policyIdInput}`);
+      const data = res.data;
+ 
+      const fetchedSumAssured =
+        data.sum_assured ??
+        data.total_claim_amount ??
+        data.coverage_amount ??
+        0;
+ 
+      const fetchedPremium =
+        data.annual_premium ??
+        data.premium_amount ??
+        data.premium ??
+        0;
+ 
+      setFormData(prev => ({
+        ...prev,
+        policy_id: policyIdInput,
+        policy_tenure_years: Number(data.tenure ?? 0),
+        sum_assured: Number(fetchedSumAssured),
+        annual_premium: Number(fetchedPremium)
+      }));
+ 
+      setIsFetched(true);
+      toast.success("Policy details loaded");
+    } catch (err) {
       toast.error("Policy not found");
-      setPolicyData(null);
     } finally {
       setLoading(false);
     }
   };
-
-  // 🔥 VALIDATION FUNCTION
-  const validateHealthForm = () => {
+ 
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+ 
+  // ✅ validate ONLY user-entered fields
+  const validateForm = () => {
     const requiredFields = [
-      "age","prior_claims_count","incident_severity","region_risk_level",
-      "bmi","bloodpressure","diabetes","hereditary_diseases",
-      "smoker","regular_ex","weight","health_risk_score",
-      "policy_coverage_details","payment_frequency","gender"
+      "age",
+      "prior_claims_count",
+      "incident_severity",
+      "region_risk_level",
+      "bmi",
+      "bloodpressure",
+      "diabetes",
+      "smoker",
+      "regular_ex",
+      "weight",
+      "health_risk_score",
+      "hereditary_diseases",
+      "policy_coverage_details",
+      "payment_frequency",
+      "gender"
     ];
-
+ 
     for (let field of requiredFields) {
       if (formData[field] === "" || formData[field] === null) {
-        toast.error(`Please fill ${field}`);
         return false;
       }
     }
     return true;
   };
-
-  // 🔥 PREDICT
+ 
+  // --------------------------------------------------
+  // PREDICT
+  // --------------------------------------------------
   const handlePredict = async (e) => {
     e.preventDefault();
-
-    if (policyData.plan_type === "Health") {
-      if (!validateHealthForm()) return;
-    }
-
+    if (!validateForm()) return toast.error("Please fill all required fields");
+ 
     setSubmitting(true);
-
+ 
     try {
-      let payload = {
-        policy_id: policyId,
-        customer_id: localStorage.getItem("customer_id"),
-        total_claim_amount: policyData.total_claim_amount
+      const payload = {
+        policy_id: String(formData.policy_id),
+        age: parseInt(formData.age),
+        policy_tenure_years: parseFloat(formData.policy_tenure_years),
+        prior_claims_count: parseInt(formData.prior_claims_count),
+        incident_severity: formData.incident_severity,
+        region_risk_level: formData.region_risk_level,
+        bmi: parseFloat(formData.bmi),
+        bloodpressure: parseInt(formData.bloodpressure),
+        diabetes: Number(formData.diabetes),
+        smoker: Number(formData.smoker),
+        regular_ex: Number(formData.regular_ex),
+        hereditary_diseases: formData.hereditary_diseases,
+        weight: parseInt(formData.weight),
+        health_risk_score: parseInt(formData.health_risk_score),
+        policy_coverage_details: formData.policy_coverage_details,
+        payment_frequency: formData.payment_frequency,
+        gender: formData.gender
       };
-
-      let res;
-
-      if (policyData.plan_type === "Health") {
-        payload = {
-          ...payload,
-
-          age: parseInt(formData.age),
-          prior_claims_count: parseInt(formData.prior_claims_count),
-          incident_severity: formData.incident_severity,
-          region_risk_level: formData.region_risk_level,
-
-          bmi: parseFloat(formData.bmi),
-          bloodpressure: parseInt(formData.bloodpressure),
-
-          // ✅ YES/NO → 1/0
-          diabetes: Number(formData.diabetes),
-          smoker: Number(formData.smoker),
-          regular_ex: Number(formData.regular_ex),
-
-          hereditary_diseases: formData.hereditary_diseases,
-          weight: parseInt(formData.weight),
-          health_risk_score: parseInt(formData.health_risk_score),
-
-          policy_coverage_details: formData.policy_coverage_details,
-          payment_frequency: formData.payment_frequency,
-          gender: formData.gender
-        };
-
-        console.log("FINAL PAYLOAD:", payload);
-
-        res = await API.post("/predict-health", payload);
-
-      } else {
-        payload = {
-          ...payload,
-          vehicle_type: formData.vehicle_type,
-          vehicle_tier: formData.vehicle_tier,
-          vehicle_subtype: formData.vehicle_subtype
-        };
-
-        res = await API.post("/predict-auto", payload);
-      }
-
-      setPredictedAmount(res.data.amount);
-      setShowSuccess(true);
-
-      confetti({ particleCount: 120, spread: 60 });
-
-      setTimeout(() => {
-        navigate("/customer/claim-policies");
-      }, 4000);
-
+ 
+      const res = await API.post("/predict-health", payload);
+ 
+      setPredictedAmount(res.data.claimable_amount);
+      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+ 
+      setTimeout(() => navigate("/customer/claim-policies"), 5000);
     } catch (err) {
-      console.error("ERROR:", err.response?.data || err.message);
       toast.error("Prediction failed");
     } finally {
       setSubmitting(false);
     }
   };
-
-  const inputClass =
-    "bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded w-full";
-
+ 
   return (
     <div className="flex min-h-screen bg-[#0a1628] text-white">
       <CustSidebar />
-      <div className="flex-1">
+      <div className="flex-1 flex flex-col">
         <CustNavbar />
-
-        <main className="p-8 flex justify-center">
-          <div className="w-full max-w-2xl">
-
-            {showSuccess ? (
+ 
+        <main className="p-8">
+          <div className="max-w-5xl mx-auto">
+ 
+            {predictedAmount !== null ? (
               <div className="text-center py-20">
-                <CheckCircle size={80} className="mx-auto text-green-400" />
-                <h1 className="text-3xl font-bold mt-4">Success</h1>
-                <p className="text-xl mt-2">
-                  Claimable Amount: ₹{predictedAmount}
-                </p>
+                <CheckCircle size={80} className="mx-auto text-green-400 mb-6" />
+                <h1 className="text-4xl font-black">Prediction Successful</h1>
+                <h2 className="text-7xl mt-6">₹{predictedAmount.toLocaleString()}</h2>
               </div>
             ) : (
-              <div className="bg-[#111e32] p-8 rounded-xl">
-
-                <h2 className="text-xl mb-6 flex gap-2">
-                  <ShieldCheck /> Payout Estimator
-                </h2>
-
-                {/* POLICY SEARCH */}
-                <div className="flex gap-2 mb-6">
-                  <input
-                    className={`${inputClass} flex-1`}
-                    placeholder="Enter Policy ID"
-                    value={policyId}
-                    onChange={(e) => setPolicyId(e.target.value)}
-                  />
-                  <button onClick={handleLookup} className="bg-blue-600 px-4 rounded">
-                    {loading ? <Loader2 className="animate-spin" /> : <Search />}
-                  </button>
-                </div>
-
-                {/* POLICY DETAILS */}
-                {policyData && (
-                  <div className="bg-slate-800 p-4 rounded mb-4">
-                    <p>Premium: ₹{policyData.premium}</p>
-                    <p>Sum Assured: ₹{policyData.sum_assured}</p>
-                    <p>Tenure: {policyData.tenure} years</p>
-                    <p>Plan Type: {policyData.plan_type}</p>
-                  </div>
-                )}
-
-                {policyData && (
-                  <form onSubmit={handlePredict} className="space-y-3">
-
-                    {policyData.plan_type === "Health" && (
-                      <>
-                        <input className={inputClass} placeholder="Age" onChange={(e)=>setFormData({...formData, age:e.target.value})}/>
-                        <input className={inputClass} placeholder="Prior Claims Count" onChange={(e)=>setFormData({...formData, prior_claims_count:e.target.value})}/>
-                        
-                        <select className={inputClass} onChange={(e)=>setFormData({...formData, incident_severity:e.target.value})}>
-                          <option value="">Incident Severity</option>
-                          <option>Low</option>
-                          <option>Medium</option>
-                          <option>High</option>
-                        </select>
-
-                        <select className={inputClass} onChange={(e)=>setFormData({...formData, region_risk_level:e.target.value})}>
-                          <option value="">Region Risk Level</option>
-                          <option>Low</option>
-                          <option>Medium</option>
-                          <option>High</option>
-                        </select>
-
-                        <input className={inputClass} placeholder="BMI" onChange={(e)=>setFormData({...formData, bmi:e.target.value})}/>
-                        <input className={inputClass} placeholder="Blood Pressure" onChange={(e)=>setFormData({...formData, bloodpressure:e.target.value})}/>
-
-                        <select className={inputClass} onChange={(e)=>setFormData({...formData, diabetes:e.target.value})}>
-                          <option value="">Diabetes</option>
-                          <option value="1">Yes</option>
-                          <option value="0">No</option>
-                        </select>
-
-                        <input className={inputClass} placeholder="Hereditary Diseases" onChange={(e)=>setFormData({...formData, hereditary_diseases:e.target.value})}/>
-
-                        <select className={inputClass} onChange={(e)=>setFormData({...formData, smoker:e.target.value})}>
-                          <option value="">Smoker</option>
-                          <option value="1">Yes</option>
-                          <option value="0">No</option>
-                        </select>
-
-                        <select className={inputClass} onChange={(e)=>setFormData({...formData, regular_ex:e.target.value})}>
-                          <option value="">Regular Exercise</option>
-                          <option value="1">Yes</option>
-                          <option value="0">No</option>
-                        </select>
-
-                        <input className={inputClass} placeholder="Weight" onChange={(e)=>setFormData({...formData, weight:e.target.value})}/>
-                        <input className={inputClass} placeholder="Health Risk Score" onChange={(e)=>setFormData({...formData, health_risk_score:e.target.value})}/>
-
-                        <select className={inputClass} onChange={(e)=>setFormData({...formData, policy_coverage_details:e.target.value})}>
-                          <option value="">Coverage</option>
-                          <option>Individual</option>
-                          <option>Family</option>
-                        </select>
-
-                        <select className={inputClass} onChange={(e)=>setFormData({...formData, payment_frequency:e.target.value})}>
-                          <option value="">Payment Frequency</option>
-                          <option>Annual</option>
-                          <option>Monthly</option>
-                        </select>
-
-                        <select className={inputClass} onChange={(e)=>setFormData({...formData, gender:e.target.value})}>
-                          <option value="">Gender</option>
-                          <option>Male</option>
-                          <option>Female</option>
-                        </select>
-                      </>
-                    )}
-
-                    <button className="w-full bg-green-600 py-3 rounded">
-                      {submitting ? "Processing..." : "Predict Claim"}
+              <>
+                {/* POLICY LOOKUP */}
+                <div className="bg-[#111e32] p-6 rounded-3xl mb-6">
+                  <label className={labelClass}>Enter Policy ID</label>
+                  <div className="flex gap-4">
+                    <input
+                      className={inputClass}
+                      value={policyIdInput}
+                      onChange={(e) => setPolicyIdInput(e.target.value)}
+                      placeholder="Policy ID"
+                    />
+                    <button onClick={handleLookup} className="bg-blue-600 px-8 rounded-xl">
+                      {loading ? <Loader2 className="animate-spin" /> : "Fetch"}
                     </button>
-
+                  </div>
+                </div>
+ 
+                {isFetched && (
+                  <form onSubmit={handlePredict} className="space-y-6">
+ 
+                    {/* READ ONLY FROM DB */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <input className={inputClass} value={`Tenure: ${formData.policy_tenure_years} yrs`} readOnly />
+                      <input className={inputClass} value={`Sum Assured: ₹${formData.sum_assured.toLocaleString()}`} readOnly />
+                      <input className={inputClass} value={`Annual Premium: ₹${formData.annual_premium.toLocaleString()}`} readOnly />
+                    </div>
+ 
+                    {/* USER INPUTS */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <input name="age" placeholder="Age" className={inputClass} onChange={handleChange} />
+                      <input name="weight" placeholder="Weight (kg)" className={inputClass} onChange={handleChange} />
+                      <input name="bmi" placeholder="BMI" className={inputClass} onChange={handleChange} />
+                      <input name="bloodpressure" placeholder="Blood Pressure" className={inputClass} onChange={handleChange} />
+                      <input name="prior_claims_count" placeholder="Prior Claims" className={inputClass} onChange={handleChange} />
+ 
+                      <select name="diabetes" className={inputClass} onChange={handleChange}>
+                        <option value="">Diabetes?</option>
+                        <option value="0">No</option>
+                        <option value="1">Yes</option>
+                      </select>
+ 
+                      <select name="smoker" className={inputClass} onChange={handleChange}>
+                        <option value="">Smoker?</option>
+                        <option value="0">No</option>
+                        <option value="1">Yes</option>
+                      </select>
+ 
+                      <select name="regular_ex" className={inputClass} onChange={handleChange}>
+                        <option value="">Exercise</option>
+                        <option value="1">Regular</option>
+                        <option value="0">Sedentary</option>
+                      </select>
+ 
+                      <input name="health_risk_score" placeholder="Health Risk Score" className={inputClass} onChange={handleChange} />
+ 
+                      <input name="hereditary_diseases" placeholder="Hereditary Diseases" className={inputClass} onChange={handleChange} />
+ 
+                      <select name="incident_severity" className={inputClass} onChange={handleChange}>
+                        <option value="">Incident Severity</option>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                      </select>
+ 
+                      <select name="region_risk_level" className={inputClass} onChange={handleChange}>
+                        <option value="">Region Risk</option>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                      </select>
+ 
+                      <select name="policy_coverage_details" className={inputClass} onChange={handleChange}>
+                        <option value="">Coverage Type</option>
+                        <option value="Individual">Individual</option>
+                        <option value="Family">Family</option>
+                      </select>
+ 
+                      <select name="payment_frequency" className={inputClass} onChange={handleChange}>
+                        <option value="">Payment Frequency</option>
+                        <option value="Annual">Annual</option>
+                        <option value="Monthly">Monthly</option>
+                      </select>
+ 
+                      <select name="gender" className={inputClass} onChange={handleChange}>
+                        <option value="">Gender</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                      </select>
+                    </div>
+ 
+                    <button className="w-full bg-green-600 py-4 rounded-xl font-bold">
+                      {submitting ? "Predicting..." : "Predict Claim Amount"}
+                    </button>
+ 
                   </form>
                 )}
-
-              </div>
+              </>
             )}
           </div>
         </main>
@@ -290,5 +287,5 @@ function AmountPredict() {
     </div>
   );
 }
-
+ 
 export default AmountPredict;
