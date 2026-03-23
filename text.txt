@@ -1,23 +1,65 @@
- File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
-    return await self.app(scope, receive, send)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 716, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 736, in app
-    await route.handle(scope, receive, send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 290, in handle
-    await self.app(scope, receive, send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 130, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 116, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 381, in app
-    assert isinstance(file_stack, AsyncExitStack), (
-           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: fastapi_middleware_astack not found in request scope
-INFO: 
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 1733, in include_router
+    router.default_response_class,
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'FastAPI' object has no attribute 'default_response_class'
+WARNING:  WatchFiles detected changes in 'routes\payout.py'. Reloading...
+ 2026-03-23 08:55:41,659 | INFO | predict | [STARTUP] Loading model artifacts from C:\Users\manda.shiva\Downloads\fraud_detect\backend\artifacts
+2026-03-23 08:55:43,336 | INFO | predict | [STARTUP] Artifacts loaded. Features: ['insured_age', 'num_prior_claims', 'policy_tenure_months', 'life_sum_assured', 'annual_premium', 'deductible', 'claim_amount', 'days_to_report', 'policy_age_days_at_incident', 'incident_weekday', 'incident_month', 'report_weekday', 'report_month', 'incident_hour', 'claim_to_premium_ratio', 'deductible_to_claim_ratio', 'premium_per_month', 'prior_claim_rate', 'vehicle_age', 'property_age', 'is_new_policy_90d', 'is_late_report_14d', 'is_online', 'is_cash_or_crypto', 'police_reported_flag', 'injury_severe_flag', 'te_policy_type', 'te_coverage_type', 'te_customer_segment', 'te_channel', 'te_payment_method', 'te_geo_region', 'te_property_type', 'te_diagnosis_group', 'te_provider_specialty', 'te_life_product', 'te_vehicle_make', 'te_vehicle_model', 'te_injury_severity', 'te_police_reported']
+Process SpawnProcess-4:
+Traceback (most recent call last):
+  File "C:\Program Files\Python314\Lib\multiprocessing\process.py", line 320, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+  File "C:\Program Files\Python314\Lib\multiprocessing\process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\uvicorn\_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+    ~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\uvicorn\server.py", line 75, in run
+    return asyncio_run(self.serve(sockets=sockets), loop_factory=self.config.get_loop_factory())
+  File "C:\Program Files\Python314\Lib\asyncio\runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Program Files\Python314\Lib\asyncio\runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Program Files\Python314\Lib\asyncio\base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\uvicorn\server.py", line 79, in serve       
+    await self._serve(sockets)
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\uvicorn\server.py", line 86, in _serve      
+    config.load()
+    ~~~~~~~~~~~^^
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\uvicorn\config.py", line 441, in load       
+    self.loaded_app = import_from_string(self.app)
+                      ~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\uvicorn\importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "C:\Program Files\Python314\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1398, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1371, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1342, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 938, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 762, in exec_module
+  File "<frozen importlib._bootstrap>", line 491, in _call_with_frames_removed
+  File "C:\Users\manda.shiva\Downloads\fraud_detect\backend\main.py", line 26, in <module>
+    app.include_router(payout.router)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\applications.py", line 1551, in include_router
+    self.router.include_router(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        router,
+        ^^^^^^^
+    ...<8 lines>...
+        generate_unique_id_function=generate_unique_id_function,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 1733, in include_router
+    router.default_response_class,
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'FastAPI' object has no attribute 'default_response_class'
