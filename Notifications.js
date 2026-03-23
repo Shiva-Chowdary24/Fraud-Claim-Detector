@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, Clock, ChevronRight, Circle, Trash2 } from 'lucide-react';
-import API from '../api'; // ✅ Using your custom API instance
+import API from '../services/api';
 import { toast } from 'react-toastify';
 
 const Notifications = ({ notifications, onClose, role, setNotifications }) => {
