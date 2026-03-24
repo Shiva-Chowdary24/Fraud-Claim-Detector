@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Header
-from database import policy_requests, issued_policies, notifications, audit_logs, queries, fraud_logs
+from database import policy_requests, issued_policies, notifications, audit_logs, queries, fraud_logs,policies
 from datetime import datetime
 from bson import ObjectId
 import random
@@ -38,22 +38,34 @@ def approve(request_id: str, role: str = Header(None)):
         if not req:
             raise HTTPException(404, "Application not found")
 
+        # ✅ FETCH FROM MASTER COLLECTION
+        policy_master = policies.find_one({
+            "plan_name": req.get("plan_name")
+        })
+
+        if not policy_master:
+            raise HTTPException(404, "Policy not found in master collection")
+
         plan_name = req.get("plan_name", "POL")
         prefix = plan_name[:3].upper()
         generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
-        customer_id = req.get("customer_id")
 
-        # ✅ EXPLICITLY ADD REQUIRED FIELDS
         issued_data = {
             "policy_id": generated_id,
-            "customer_id": customer_id,
+            "customer_id": req.get("customer_id"),
+
+            # from request
             "plan_name": req.get("plan_name"),
-            "premium_amount": req.get("premium_amount"),
-            "total_claim_amount": req.get("total_claim_amount"),   # ✅ IMPORTANT
-            "plan_type": req.get("plan_type"),                     # ✅ IMPORTANT
-            "tenure": req.get("tenure"),
-            "description": req.get("description"),
-            "benefits": req.get("benefits"),
+            "email": req.get("email"),
+
+            # 🔥 from policies collection (FIX)
+            "plan_type": policy_master.get("plan_type"),
+            "premium_amount": policy_master.get("premium_amount"),
+            "total_claim_amount": policy_master.get("total_claim_amount"),
+            "tenure": policy_master.get("tenure"),
+            "description": policy_master.get("description"),
+            "benefits": policy_master.get("benefits"),
+
             "status": "Active",
             "approved_at": now()
         }
@@ -62,37 +74,46 @@ def approve(request_id: str, role: str = Header(None)):
 
         policy_requests.delete_one({"_id": ObjectId(request_id)})
 
-        # Notification
-        notifications.insert_one({
-            "recipient_id": str(customer_id),
-            "message": f"Your {plan_name} policy was APPROVED! ID: {generated_id}",
-            "type": "policy_update",
-            "link": "/customer/policy-history",
-            "read": False,
-            "timestamp": now()
-        })
-
-        # Audit
-        audit_logs.insert_one({
-            "action": "Approved",
-            "details": f"Policy {generated_id} issued to {req.get('email')}",
-            "timestamp": now()
-        })
-
-        return {"message": "Approved", "policy_id": generated_id}
+        return {
+            "message": "Approved",
+            "policy_id": generated_id
+        }
 
     except Exception as e:
-        raise HTTPException(500, f"Internal Error: {str(e)}")
+        print("ERROR:",str(e))
+        raise HTTPException(500, f"Error: {str(e)}")
 
 # -------- QUERIES, AUDIT & NOTIFICATIONS --------
 
-@router.get("/admin/queries")
-def get_queries(role: str = Header(None)):
-    verify_admin(role)
-    results = list(queries.find())
-    for r in results:
-        r["_id"] = str(r["_id"])
-    return results
+# @router.get("/admin/queries")
+# def get_queries(role: str = Header(None)):
+#    if role != "admin":
+#        raise HTTPException(status_code=403, detail="Admin access required")
+#    # Filter for Pending only so the list clears as you reply
+#    results = list(queries.find({"status": "Pending"}))
+#    for r in results:
+#        r["_id"] = str(r["_id"])
+#    return results
+# @router.post("/admin/reply/{query_id}")
+# def reply_query(query_id: str, data: dict):
+#    reply_text = data.get("reply")
+#    # 1. Update query status
+#    query_obj = queries.find_one({"_id": ObjectId(query_id)})
+#    if not query_obj:
+#        raise HTTPException(status_code=404, detail="Query not found")
+#    queries.update_one(
+#        {"_id": ObjectId(query_id)},
+#        {"$set": {"status": "Resolved", "reply": reply_text, "resolved_at": now()}}
+#    )
+#    # 2. Notify the customer
+#    notifications.insert_one({
+#        "recipient_id": str(query_obj.get("customer_id") or query_obj.get("email")),
+#        "message": f"New reply to your query: '{query_obj.get('subject')}'",
+#        "type": "support_reply",
+#        "timestamp": now(),
+#        "read": False
+#    })
+#    return {"message": "Reply sent successfully"}
 
 # ✅ FIXED: Renamed this function to 'get_audit_logs' to avoid duplicate name 'audit'
 @router.get("/admin/audit-logs")
@@ -121,6 +142,7 @@ def get_admin_notifications(role: str = Header(None)):
 class StatusUpdate(BaseModel):
     Policy_id: str
     status: str
+    reason: Optional[str]=""
 
 @router.post("/admin/logs/update-status")
 def update_log_status(data: StatusUpdate, role: str = Header(None)): # ✅ Removed 'async' for PyMongo
@@ -129,7 +151,7 @@ def update_log_status(data: StatusUpdate, role: str = Header(None)): # ✅ Remov
         # ✅ REAL LOGIC: Update the actual claim/fraud log in DB
         result = fraud_logs.update_one(
             {"Policy_id": data.Policy_id},
-            {"$set": {"status": data.status, "updated_at": now()}}
+            {"$set": {"status": data.status,"admin_reason":data.reason,"updated_at": now()}}
         )
         
         print(f"Updating {data.Policy_id} to {data.status}")
