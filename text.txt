@@ -1,82 +1,540 @@
- 127.0.0.1:64332 - "POST /admin/logs/update-status HTTP/1.1" 500 Internal Server Error
-ERROR:    Exception in ASGI application
-Traceback (most recent call last):
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\uvicorn\protocols\http\httptools_impl.py", line 416, in run_asgi
-    result = await app(  # type: ignore[func-returns-value]
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        self.scope, self.receive, self.send
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
-    return await self.app(scope, receive, send)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\applications.py", line 1160, in __call__
-    await super().__call__(scope, receive, send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\applications.py", line 90, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\middleware\errors.py", line 186, in __call__
-    raise exc
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\middleware\errors.py", line 164, in __call__
-    await self.app(scope, receive, _send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\middleware\cors.py", line 96, in __call__
-    await self.simple_response(scope, receive, send, request_headers=headers)     
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\middleware\cors.py", line 154, in simple_response
-    await self.app(scope, receive, send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)      
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
-    await self.app(scope, receive, send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 660, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 680, in app
-    await route.handle(scope, receive, send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\routing.py", line 276, in handle
-    await self.app(scope, receive, send)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 130, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)        
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 116, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\routing.py", line 453, in app
-    solved_result = await solve_dependencies(
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<6 lines>...
-    )
-    ^
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\dependencies\utils.py", line 703, in solve_dependencies
-    ) = await request_body_to_args(  # body_params checked above
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<3 lines>...
-    )
-    ^
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\dependencies\utils.py", line 974, in request_body_to_args
-    v_, errors_ = _validate_value_with_model_field(
-                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
-        field=first_field, value=body_to_process, values=values, loc=loc
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\dependencies\utils.py", line 743, in _validate_value_with_model_field
-    return field.validate(value, values, loc=loc)
-           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\manda.shiva\AppData\Roaming\Python\Python314\site-packages\fastapi\_compat\v2.py", line 169, in validate
-    self._type_adapter.validate_python(value, from_attributes=True),
-ieldInfo(annotation=NoneType, required=True, alias='data', alias_priority=2, json_schema_extra={})]` and all referenced types, then call `.rebuild()` on the instance.
+now i will give every action that is done by admin
 
-ieldInfo(annotation=NoneType, required=True, alias='data', alias_priority=2, json_schema_extra={})]` and all referenced types, then call `.rebuild()` on the instance.
-ieldInfo(annotation=NoneType, required=True, alias='data', alias_priority=2, json_schema_extra={})]` and all referenced types, then call ieldInfo(annotation=NoneType, required=True, alias='data', alias_priority=2, json_schema_extra={})]` and all referenced types, then call `.rebuild()` on the instance.
+from fastapi import APIRouter, HTTPException, Header
+from database import policy_requests, issued_policies, notifications, audit_logs, queries, fraud_logs,policies
+from datetime import datetime
+from bson import ObjectId
+import random
+from pydantic import BaseModel
+from typing import Optional
 
-For further information visit https://errors.pydantic.dev/2.12/u/class-not-fully-defined
-INFO:     127.0.0.1:60760 - "GET /admin/notifications?recipient_id=ADMIN HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55561 - "GET /admin/notifications?recipient_id=ADMIN HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59408 - "GET /admin/notifications?recipient_id=ADMIN HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52832 - 
+router = APIRouter()
+
+# ✅ HELPER: Using utcnow() is good, but ensure datetime is imported
+def now():
+    return datetime.utcnow().isoformat()
+
+# ✅ HELPER: Security Gatekeeper
+def verify_admin(role: str):
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Unauthorized: Admin access required.")
+
+# -------- POLICY APPROVALS --------
+
+@router.get("/admin/policy-requests")
+def get_requests(role: str = Header(None)):
+    verify_admin(role)
+    try:
+        results = list(policy_requests.find({"status": "Pending"}))
+        for r in results:
+            r["_id"] = str(r["_id"]) 
+        return results
+    except Exception as e:
+        raise HTTPException(500, f"Error: {str(e)}")
+
+@router.post("/admin/policy-approve/{request_id}")
+def approve(request_id: str, role: str = Header(None)):
+    verify_admin(role)
+
+    try:
+        req = policy_requests.find_one({"_id": ObjectId(request_id)})
+        if not req:
+            raise HTTPException(404, "Application not found")
+
+        # ✅ FETCH FROM MASTER COLLECTION
+        policy_master = policies.find_one({
+            "plan_name": req.get("plan_name")
+        })
+
+        if not policy_master:
+            raise HTTPException(404, "Policy not found in master collection")
+
+        plan_name = req.get("plan_name", "POL")
+        prefix = plan_name[:3].upper()
+        generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
+
+        issued_data = {
+            "policy_id": generated_id,
+            "customer_id": req.get("customer_id"),
+
+            # from request
+            "plan_name": req.get("plan_name"),
+            "email": req.get("email"),
+
+            # 🔥 from policies collection (FIX)
+            "plan_type": policy_master.get("plan_type"),
+            "premium_amount": policy_master.get("premium_amount"),
+            "total_claim_amount": policy_master.get("total_claim_amount"),
+            "tenure": policy_master.get("tenure"),
+            "description": policy_master.get("description"),
+            "benefits": policy_master.get("benefits"),
+
+            "status": "Active",
+            "approved_at": now()
+        }
+
+        issued_policies.insert_one(issued_data)
+
+        policy_requests.delete_one({"_id": ObjectId(request_id)})
+
+        return {
+            "message": "Approved",
+            "policy_id": generated_id
+        }
+
+    except Exception as e:
+        print("ERROR:",str(e))
+        raise HTTPException(500, f"Error: {str(e)}")
+
+# -------- QUERIES, AUDIT & NOTIFICATIONS --------
+
+# @router.get("/admin/queries")
+# def get_queries(role: str = Header(None)):
+#    if role != "admin":
+#        raise HTTPException(status_code=403, detail="Admin access required")
+#    # Filter for Pending only so the list clears as you reply
+#    results = list(queries.find({"status": "Pending"}))
+#    for r in results:
+#        r["_id"] = str(r["_id"])
+#    return results
+# @router.post("/admin/reply/{query_id}")
+# def reply_query(query_id: str, data: dict):
+#    reply_text = data.get("reply")
+#    # 1. Update query status
+#    query_obj = queries.find_one({"_id": ObjectId(query_id)})
+#    if not query_obj:
+#        raise HTTPException(status_code=404, detail="Query not found")
+#    queries.update_one(
+#        {"_id": ObjectId(query_id)},
+#        {"$set": {"status": "Resolved", "reply": reply_text, "resolved_at": now()}}
+#    )
+#    # 2. Notify the customer
+#    notifications.insert_one({
+#        "recipient_id": str(query_obj.get("customer_id") or query_obj.get("email")),
+#        "message": f"New reply to your query: '{query_obj.get('subject')}'",
+#        "type": "support_reply",
+#        "timestamp": now(),
+#        "read": False
+#    })
+#    return {"message": "Reply sent successfully"}
+
+# ✅ FIXED: Renamed this function to 'get_audit_logs' to avoid duplicate name 'audit'
+@router.get("/admin/audit-logs")
+def get_audit_logs(role: str = Header(None)):
+    verify_admin(role)
+    return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
+
+# ✅ FIXED: Renamed this function to 'get_fraud_logs' to avoid duplicate name 'audit'
+@router.get("/admin/logs")
+def get_fraud_logs(role: str = Header(None)):
+    verify_admin(role)
+    # CRITICAL: If you want notifications to work, the logs in fraud_logs 
+    # MUST contain the 'customer_id' field.
+    return list(fraud_logs.find({}, {"_id": 0}).sort([("verified",1),("timestamp", -1)]))
+
+@router.get("/admin/notifications")
+def get_admin_notifications(role: str = Header(None)):
+    verify_admin(role)
+    notifs = list(notifications.find({"recipient_id": "ADMIN"}).sort("timestamp", -1))
+    for n in notifs:
+        n["_id"] = str(n["_id"])
+    return notifs
+
+# -------- LOG STATUS UPDATES --------
+
+class StatusUpdate(BaseModel):
+    Policy_id: str
+    status: str
+    reason: Optional[str]=""
+
+@router.post("/admin/logs/update-status")
+def update_log_status(data: StatusUpdate, role: str = Header(None)): # ✅ Removed 'async' for PyMongo
+    verify_admin(role) # Added security check
+    try:
+        # ✅ REAL LOGIC: Update the actual claim/fraud log in DB
+        result = fraud_logs.update_one(
+            {"Policy_id": data.Policy_id},
+            {"$set": {"status": data.status,"verified":True,"admin_reason":data.reason,"updated_at": now()}}
+        )
+        
+        print(f"Updating {data.Policy_id} to {data.status}")
+        return {"message": "Success", "modified_count": result.modified_count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+from fastapi import APIRouter, HTTPException, Header
+from datetime import datetime
+from bson import ObjectId
+from pydantic import BaseModel, Field
+from typing import Optional
+import traceback
+
+from database import queries, notifications, users  # ensure these are correctly wired
+
+router = APIRouter(tags=["Support System"])
+
+# -----------------------------
+# Helpers
+# -----------------------------
+def now() -> str:
+    """UTC ISO timestamp."""
+    return datetime.utcnow().isoformat()
+
+def verify_admin(role: Optional[str]):
+    """Allow only admin header."""
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+# -----------------------------
+# Models
+# -----------------------------
+class QueryRequest(BaseModel):
+    customer_id: str = Field(..., min_length=1)
+    subject: str = Field(..., min_length=1)
+    query: str = Field(..., min_length=1)
+
+class ReplyRequest(BaseModel):
+    reply: str = Field(..., min_length=1)
+
+# -----------------------------
+# Resolver (fallback): get email by customer_id
+# -----------------------------
+@router.get("/customer/resolve-email/{customer_id}")
+def resolve_email(customer_id: str):
+    cid = (customer_id or "").strip()
+    if not cid:
+        raise HTTPException(status_code=400, detail="customer_id required")
+    user = users.find_one({"customer_id": cid})
+    if not user or not user.get("email"):
+        raise HTTPException(status_code=404, detail="email not found for customer_id")
+    return {"email": (user["email"] or "").strip().lower()}
+
+# -----------------------------
+# 1) Customer: Submit a new query (server-side profile lookup)
+# -----------------------------
+@router.post("/query")
+def ask_query(data: QueryRequest):
+    try:
+        cid = (str(data.customer_id) or "").strip()
+        if not cid:
+            raise HTTPException(status_code=400, detail="customer_id is required")
+
+        user_profile = users.find_one({"customer_id": cid})
+        print(f"DEBUG: Received customer_id: {cid} (Type: {type(cid)})")
+        print(f"DEBUG: User Profile Found: {user_profile}")
+
+        if not user_profile:
+            raise HTTPException(
+                status_code=404,
+                detail="Profile lookup failed in database. Check customer_id exists and is a string."
+            )
+
+        # Normalize/whitelist values
+        email = (user_profile.get("email") or "").strip().lower()
+        if not email:
+            raise HTTPException(status_code=422, detail="User email missing in profile")
+        user_name = (user_profile.get("full_name") or "").strip() or "Unknown User"
+
+        query_doc = {
+            "customer_id": cid,
+            "user_name": user_name,
+            "email": email,
+            "subject": data.subject,
+            "query": data.query,
+            "status": "Pending",
+            "reply": None,
+            "timestamp": now(),
+            "resolved_at": None,
+        }
+
+        result = queries.insert_one(query_doc)
+
+        # Notify admin (best-effort)
+        try:
+            notifications.insert_one({
+                "recipient_id": "ADMIN",
+                "message": f"New Support Ticket: {data.subject} from {user_name}",
+                "type": "new_query",
+                "link": "/admin/customer-queries",
+                "timestamp": now(),
+                "read": False
+            })
+        except Exception as ne:
+            print("WARN: notification insert failed:", ne)
+
+        return {"message": "Query submitted successfully", "id": str(result.inserted_id)}
+    except HTTPException:
+        raise
+    except Exception:
+        print("ERROR in /query:", traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+# -----------------------------
+# 2) Customer: Get my support history
+# -----------------------------
+@router.get("/customer/queries/{email}")
+def get_customer_history(email: str):
+    try:
+        email_norm = (email or "").strip().lower()
+        print(f"Searching queries for: {email_norm}")
+        results = list(queries.find({"email": email_norm}).sort("timestamp", -1))
+        print(f"DEBUG: matched {len(results)} docs")
+        for r in results:
+            r["_id"] = str(r["_id"])
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# -----------------------------
+# 3) Admin: Get all pending queries
+# -----------------------------
+@router.get("/admin/queries")
+def get_all_queries(role: Optional[str] = Header(None)):
+    verify_admin(role)
+    try:
+        results = list(queries.find({"status": "Pending"}).sort("timestamp", 1))
+        for r in results:
+            r["_id"] = str(r["_id"])
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# -----------------------------
+# 4) Admin: Reply to a query
+# -----------------------------
+@router.post("/admin/reply/{query_id}")
+def reply_to_query(query_id: str, data: ReplyRequest, role: Optional[str] = Header(None)):
+    verify_admin(role)
+    try:
+        if not ObjectId.is_valid(query_id):
+            raise HTTPException(status_code=400, detail="Invalid query_id")
+
+        oid = ObjectId(query_id)
+
+        update_result = queries.update_one(
+            {"_id": oid},
+            {
+                "$set": {
+                    "status": "Resolved",
+                    "reply": data.reply,
+                    "resolved_at": now(),
+                }
+            }
+        )
+        if update_result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Query not found")
+
+        original_query = queries.find_one({"_id": oid})
+        if not original_query:
+            # Updated but not retrievable (rare)
+            return {"message": "Reply saved, but original query not found for notification"}
+
+        # Notify customer (best-effort)
+        try:
+            cust_email = (original_query.get("email") or "").strip().lower()
+            subj = original_query.get("subject", "your query")
+            if cust_email:
+                notifications.insert_one({
+                    "recipient_id": cust_email,
+                    "message": f"Admin replied to your query: '{subj}'",
+                    "type": "support_reply",
+                    "link": "/customer/support-history",
+                    "timestamp": now(),
+                    "read": False
+                })
+        except Exception as ne:
+            print("WARN: customer notification insert failed:", ne)
+
+        return {"message": "Reply sent and status updated to Resolved"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+import os, hashlib, hmac, random
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from database import users
+from datetime import datetime
+
+router = APIRouter(tags=["Auth"])
+
+# Updated Model to include full_name
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str = None  # Optional for login, required for signup
+
+def hash_password(password):
+    salt = os.urandom(16)
+    hashed = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
+    return salt.hex(), hashed.hex()
+
+def verify_password(password, salt, stored):
+    salt = bytes.fromhex(salt)
+    new_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
+    return hmac.compare_digest(new_hash.hex(), stored)
+
+@router.post("/customer/register")
+def register(req: AuthRequest):
+    if users.find_one({"email": req.email}):
+        raise HTTPException(400, "User already exists")
+
+    # Generate unique 6-digit Customer ID
+    while True:
+        cust_id = str(random.randint(100000, 999999))
+        if not users.find_one({"customer_id": cust_id}):
+            break
+
+    salt, hashed = hash_password(req.password)
+
+    users.insert_one({
+        "customer_id": cust_id,
+        "full_name": req.full_name, # Storing the name
+        "email": req.email,
+        "password": hashed,
+        "salt": salt,
+        "role": "customer",
+        "created_at": datetime.utcnow().isoformat()
+    })
+
+    return {"message": "Registered", "customer_id": cust_id, "full_name": req.full_name}
+
+@router.post("/customer/login")
+def login(req: AuthRequest):
+    user = users.find_one({"email": req.email, "role": "customer"})
+
+    if not user or not verify_password(req.password, user["salt"], user["password"]):
+        raise HTTPException(401, "Invalid credentials")
+
+    # Returning both the ID and the Full Name
+    return {
+        "message": "Login success", 
+        "email": req.email, 
+        "customer_id": user.get("customer_id"),
+        "full_name": user.get("full_name") 
+    }
+@router.post("/admin/login")
+def login(req: AuthRequest):
+    # 1. Find the user. Using 'role': 'admin' ensures customers can't use this route.
+    user = users.find_one({"email": req.email, "role": "admin"})
+
+    # 2. Verify password with the salt and hash from your manual script
+    if not user or not verify_password(req.password, user["salt"], user["password"]):
+        raise HTTPException(status_code=401, detail="Invalid admin credentials")
+
+    # 3. Return the COMPLETE identity package
+    return {
+        "message": "Login success", 
+        "email": req.email, 
+        "admin_id": str(user.get("admin_id")), # Ensure ID is a string for JSON
+        "full_name": user.get("full_name"),
+        "role": "admin",  # 👈 CRITICAL: React needs this to authorize the dashboard
+        "token": "admin_session_token" # Optional: add if your frontend expects a token
+    }
+
+
+import { useEffect, useState } from "react"
+import axios from "axios"
+import AdminLayout from "../components/AdminLayout"
+
+function AuditLogs(){
+
+const [logs,setLogs] = useState([])
+const [search,setSearch] = useState("")
+
+useEffect(() => {
+
+axios.get("http://127.0.0.1:8000/admin/audit-logs")
+.then(res => setLogs(res.data))
+
+}, [])
+
+// 🔍 Filter logic
+const filteredLogs = logs.filter(log =>
+log.action.toLowerCase().includes(search.toLowerCase()) ||
+log.details.toLowerCase().includes(search.toLowerCase()) ||
+log.admin.toLowerCase().includes(search.toLowerCase())
+)
+
+return(
+
+<AdminLayout>
+
+<h2 className="text-2xl font-bold mb-6">
+Audit Logs
+</h2>
+
+{/* 🔍 Search Box */}
+
+<input
+type="text"
+placeholder="Search logs..."
+value={search}
+onChange={(e)=>setSearch(e.target.value)}
+className="border p-3 rounded w-full mb-6"
+/>
+
+<div className="overflow-x-auto">
+
+<table className="w-full bg-white rounded shadow">
+
+<thead className="bg-gray-200">
+
+<tr>
+<th className="p-3">Action</th>
+<th className="p-3">Admin</th>
+<th className="p-3">Details</th>
+<th className="p-3">Time</th>
+</tr>
+
+</thead>
+
+<tbody>
+
+{filteredLogs.length > 0 ? (
+
+filteredLogs.map((log,index)=>(
+<tr key={index} className="border-t text-center">
+
+<td className="p-3">{log.action}</td>
+<td className="p-3">{log.admin}</td>
+<td className="p-3">{log.details}</td>
+<td className="p-3">
+{new Date(log.timestamp).toLocaleString()}
+</td>
+
+</tr>
+))
+
+) : (
+
+<tr>
+<td colSpan="4" className="p-5 text-gray-500 text-center">
+No results found
+</td>
+</tr>
+
+)}
+
+</tbody>
+
+</table>
+
+</div>
+
+</AdminLayout>
+
+)
+
+}
+
+export default AuditLogs
+
+i have given my frontend and backend
+record every action that is done by admin 
+which post method
+even record login session too
+according to this do required changes in frontend
+dont use axios we are using api.js which is in services folder
