@@ -1,71 +1,626 @@
-@router.post("/query")
-def ask_query(data: QueryRequest):
-    print("🔥 DEBUG: /query endpoint HIT")
+from fastapi import APIRouter, HTTPException, Query,Header
+from database import policy_requests, issued_policies, queries, notifications,policies,claim_policies,fraud_logs
+from datetime import datetime
+from bson import ObjectId
+from uuid import uuid4
+
+router = APIRouter()
+
+def now():
+    return datetime.utcnow().isoformat()
+
+# --- 1. SUBMIT APPLICATION (Triggers Admin Notification) ---
+@router.post("/customer/submit-application")
+def submit_application(data: dict):
+    try:
+        # Check if IDs were sent automatically from Frontend
+        if not data.get("customer_id") or not data.get("full_name"):
+            raise HTTPException(status_code=400, detail="Session Error: Missing Customer Identity.")
+
+        # Add Metadata
+        data["request_id"] = f"REQ-{str(uuid4())[:6].upper()}"
+        data["status"] = "Pending"
+        data["submitted_at"] = now()
+        
+        # Ensure ID is stored as string for consistent searching
+        data["customer_id"] = str(data["customer_id"])
+
+        # Insert the application
+        policy_requests.insert_one(data)
+
+        # ✅ NOTIFY ADMIN (For the Bell Icon Action)
+        notifications.insert_one({
+            "recipient_id": "ADMIN", 
+            "message": f"New Policy Request from {data.get('full_name')} (ID: {data.get('customer_id')})",
+            "type": "new_request",
+            "link": "/admin/policy-requests", # Redirects admin to approval page
+            "read": False,
+            "timestamp": now()
+        })
+        
+        return {
+            "message": "Application submitted successfully", 
+            "request_id": data["request_id"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- 2. FULL HISTORY (Merged View for Customer History Page) ---
+@router.get("/customer/full-history")
+def get_full_history(customer_id: str = Query(...)):
+    try:
+        query = {"customer_id": str(customer_id)}
+        
+        pending = list(policy_requests.find(query))
+        active = list(issued_policies.find(query))
+        
+        combined = []
+        for item in pending:
+            item["_id"] = str(item["_id"])
+            combined.append(item)
+            
+        for item in active:
+            item["_id"] = str(item["_id"])
+            item["status"] = "Active"
+            combined.append(item)
+
+        # Sort by most recent date
+        combined.sort(key=lambda x: x.get("submitted_at") or x.get("issued_date") or "", reverse=True)
+        return combined
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="History fetch failed")
+
+# --- 3. NOTIFICATIONS (For Customer Bell Icon) ---
+@router.get("/customer/notifications")
+def get_notifications(recipient_id: str = Query(...)):
+    try:
+        # Search by recipient_id to match the 6-digit Customer ID
+        result = list(notifications.find({"recipient_id": str(recipient_id)}).sort("timestamp", -1))
+        for r in result:
+            r["_id"] = str(r["_id"])
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error fetching notifications")
+
+# --- 4. HELP & QUERIES ---
+# @router.post("/query")
+# def ask_query(data: dict):
+#    data["status"] = "Pending"
+#    data["timestamp"] = now()
+#    queries.insert_one(data)
+#    return {"message": "Query sent"}
+
+# --- 5. LEGACY ROUTES (Optional - for backward compatibility) ---
+@router.get("/customer/issued-policies")
+def get_issued(customer_id: str, role: str = Header(None)):
+    # 1. Security Check
+    if role != "customer":
+        raise HTTPException(status_code=403, detail="Unauthorized")
 
     try:
-        print("🔍 DEBUG: Request body:", data)
-
-        cid = data.customer_id.strip()
-        print("✅ DEBUG: customer_id:", cid)
-
-        # --- USER LOOKUP (OPTIONAL) ---
-        user_profile = users.find_one({
-            "$or": [
-                {"customer_id": cid},
-                {"customer_id": int(cid)} if cid.isdigit() else {}
+        # 2. Search by customer_id (ensure this matches your DB field name)
+        query={
+            "$or":[
+                {"customer_id":customer_id},
+                {"customer_id":int(customer_id) if customer_id.isdigit() else customer_id}
             ]
-        })
-
-        print("🔍 DEBUG: user_profile:", user_profile)
-
-        if user_profile:
-            user_name = (user_profile.get("full_name") or "").strip() or "Unknown User"
-            email = (user_profile.get("email") or "").strip().lower()
-        else:
-            print("⚠️ DEBUG: No user profile found — using fallback")
-            user_name = "Guest User"
-            email = "unknown@support.local"
-
-        query_doc = {
-            "customer_id": cid,
-            "user_name": user_name,
-            "email": email,
-            "subject": data.subject,
-            "query": data.query,
-            "status": "Pending",
-            "reply": None,
-            "timestamp": datetime.utcnow(),
-            "resolved_at": None,
         }
+        results = list(issued_policies.find(query))
+        
+        for r in results:
+            r["_id"] = str(r["_id"])
+            
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Database fetch failed")
+@router.get("/customer/claim-history/{customer_id}")
+def get_claim_history(customer_id: str):
+    try:
+        # We fetch only processed claims (Approved/Declined) 
+        # for the specific logged-in customer
+        query = {
+            "customer_id": str(customer_id),
+            "status": {"$in": ["Approved", "Declined"]}
+        }
+        
+        # .sort("updated_at", -1) ensures the newest decisions are at the top
+        results = list(fraud_logs.find(query).sort("updated_at", -1))
+        
+        for r in results:
+            r["_id"] = str(r["_id"]) # Convert MongoDB ID to string for React
+            
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        print("📝 DEBUG: Inserting query:", query_doc)
+@router.get("/customer/policy-details/{policy_id}")
+def get_policy(policy_id: str):
+    try:
+        print("Incoming policy_id:", policy_id)
 
-        result = queries.insert_one(query_doc)
+        policy = issued_policies.find_one({"policy_id": policy_id})
+        
 
-        print("✅ DEBUG: Query inserted:", result.inserted_id)
+        if not policy:
+            raise HTTPException(status_code=404, detail="Policy not found")
 
-        # --- ADMIN NOTIFICATION ---
-        try:
-            notifications.insert_one({
-                "recipient_id": "ADMIN",
-                "message": f"New Support Ticket: {data.subject} from {user_name}",
-                "type": "new_query",
-                "link": "/admin/customer-queries",
-                "timestamp": datetime.utcnow(),
-                "read": False
-            })
-            print("✅ DEBUG: Admin notified")
-        except Exception as ne:
-            print("⚠️ WARN: Notification failed:", ne)
 
         return {
-            "message": "Query submitted successfully",
-            "id": str(result.inserted_id)
+        "policy_id":policy["policy_id"],
+        "plan_name": policy["plan_name"],
+        "premium": policy["premium_amount"],          # ✅ FIX
+        "sum_assured": policy["total_claim_amount"],  # ✅ FIX
+        "tenure": policy["tenure"],
+        "plan_type": policy["plan_type"],
+        "description": policy["description"],
+        "benefits": policy["benefits"]
+    }
+
+    except Exception as e:
+        print("ERROR:", str(e))  # 👈 THIS WILL SHOW REAL ISSUE
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/policy/{policy_id}")
+def get_policy(policy_id: str):
+    policy = find_one({"policy_id": policy_id}, {"_id": 0})
+
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    return policy
+
+from pydantic import BaseModel
+
+class ClaimPrediction(BaseModel):
+    policy_id: str
+    claimable_amount: float
+
+
+@router.post("/customer/amount-predict/store")
+def store_claim_prediction(data: ClaimPrediction):
+    try:
+        claim_policies.insert_one({
+            "policy_id": data.policy_id,
+            "claimable_amount": data.claimable_amount,
+            "status": "Active",
+            "predicted_at": datetime.utcnow().isoformat()
+        })
+
+        return {"message": "Claim prediction stored successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/customer/claim-policies/{customer_id}")
+def get_claim_policies(customer_id: str):
+    try:
+        results = list(
+            claim_policies.find(
+                {},
+                {"_id": 0}
+            ).sort("predicted_at", -1)
+        )
+        return results
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/customer/false-claim")
+def submit_false_claim(data: FalseClaimRequest):
+    try:
+        # ✅ 1. SAVE THE FALSE CLAIM (THIS WAS MISSING)
+        claim_data = {
+            "customer_id": data.customer_id,
+            "policy_id": data.policy_id,
+            "reason": data.reason,
+            "status": "Pending",
+            "timestamp": datetime.utcnow()
         }
 
-    except HTTPException:
-        raise
-    except Exception:
-        print("🔥 ERROR in /query:")
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        false_claims.insert_one(claim_data)
+
+        # ✅ 2. NOTIFY ADMIN (CORRECT PLACE)
+        notifications.insert_one({
+            "recipient_id": "ADMIN",
+            "message": f" Review the Claim submitted by customer {data.customer_id}",
+            "link": "/admin/fraud_logs",
+            "type": "false_claim_request",
+            "timestamp": datetime.utcnow(),
+            "read": False
+        })
+
+        return {"message": "False claim submitted successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+from fastapi import APIRouter, HTTPException, Header
+from database import policy_requests, issued_policies, notifications, audit_logs, queries, fraud_logs,policies
+from datetime import datetime
+from bson import ObjectId
+import random
+from pydantic import BaseModel
+from typing import Optional
+
+router = APIRouter()
+
+# ✅ HELPER: Using utcnow() is good, but ensure datetime is imported
+def now():
+    return datetime.utcnow()
+
+# ✅ HELPER: Security Gatekeeper
+def verify_admin(role: str):
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Unauthorized: Admin access required.")
+
+def log_admin_action(admin_email: str, action: str, details: str):
+    audit_logs.insert_one({
+        "admin":admin_email,
+        "action":action,
+        "details":details,
+        "timestamp":datetime.utcnow(),
+    })
+# -------- POLICY APPROVALS --------
+
+@router.get("/admin/policy-requests")
+def get_requests(role: str = Header(None)):
+    verify_admin(role)
+    try:
+        results = list(policy_requests.find({"status": "Pending"}))
+        for r in results:
+            r["_id"] = str(r["_id"]) 
+        return results
+    except Exception as e:
+        raise HTTPException(500, f"Error: {str(e)}")
+
+
+@router.post("/admin/policy-approve/{request_id}")
+def approve(request_id: str, role: str = Header(None)):
+    verify_admin(role)
+
+    try:
+        req = policy_requests.find_one({"_id": ObjectId(request_id)})
+        if not req:
+            raise HTTPException(404, "Application not found")
+
+        policy_master = policies.find_one({
+            "plan_name": req.get("plan_name")
+        })
+
+        if not policy_master:
+            raise HTTPException(404, "Policy not found in master collection")
+
+        plan_name = req.get("plan_name", "POL")
+        prefix = plan_name[:3].upper()
+        generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
+
+        issued_data = {
+            "policy_id": generated_id,
+            "customer_id": req.get("customer_id"),
+            "plan_name": plan_name,
+            "email": req.get("email"),
+            "plan_type": policy_master.get("plan_type"),
+            "premium_amount": policy_master.get("premium_amount"),
+            "total_claim_amount": policy_master.get("total_claim_amount"),
+            "tenure": policy_master.get("tenure"),
+            "description": policy_master.get("description"),
+            "benefits": policy_master.get("benefits"),
+            "status": "Active",
+            "approved_at": now()
+        }
+
+        issued_policies.insert_one(issued_data)
+        policy_requests.delete_one({"_id": ObjectId(request_id)})
+        
+        notifications.insert_one({
+            "recipient_id": str(req.get("customer_id")),
+            "message": f" Policy '{plan_name}' has been Issued Successfully.",
+            "link": "/customer/issued-policies",
+            "type": "policy_approved",
+            "timestamp": now(),
+            "read": False
+        })
+
+        # ✅ AUDIT LOG (FIXED)
+        audit_logs.insert_one({
+            "action": "POLICY_ISSUED",
+            "details": f"Issued policy {plan_name} to customer {req.get('customer_id')}",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        return {
+            "message": "Approved",
+            "policy_id": generated_id
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/policy-decline/{request_id}")
+def decline_policy(request_id: str, role: str = Header(None)):
+    verify_admin(role)
+
+    try:
+        # ✅ Fetch request
+        req = policy_requests.find_one({"_id": ObjectId(request_id)})
+        if not req:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        customer_id = req.get("customer_id")
+
+        # ✅ Send notification to customer
+        notifications.insert_one({
+            "recipient_id": str(customer_id),
+            "message": (
+                "Your policy request was declined. "
+                "The policy was not issued. "
+                "Please contact the administrator through support."
+            ),
+            "link": "/customer/ask-question",
+            "type": "policy_declined",
+            "timestamp": now(),
+            "read": False
+        })
+
+        # ✅ Audit log
+        audit_logs.insert_one({
+            "action": "POLICY_DECLINED",
+            "details": f"Declined policy request for customer {customer_id}",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        # ✅ Delete the request record
+        policy_requests.delete_one({"_id": ObjectId(request_id)})
+
+        return {
+            "message": "Policy request declined and customer notified"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# -------- QUERIES, AUDIT & NOTIFICATIONS --------
+
+# @router.get("/admin/queries")
+# def get_queries(role: str = Header(None)):
+#    if role != "admin":
+#        raise HTTPException(status_code=403, detail="Admin access required")
+#    # Filter for Pending only so the list clears as you reply
+#    results = list(queries.find({"status": "Pending"}))
+#    for r in results:
+#        r["_id"] = str(r["_id"])
+#    return results
+# @router.post("/admin/reply/{query_id}")
+# def reply_query(query_id: str, data: dict):
+#    reply_text = data.get("reply")
+#    # 1. Update query status
+#    query_obj = queries.find_one({"_id": ObjectId(query_id)})
+#    if not query_obj:
+#        raise HTTPException(status_code=404, detail="Query not found")
+#    queries.update_one(
+#        {"_id": ObjectId(query_id)},
+#        {"$set": {"status": "Resolved", "reply": reply_text, "resolved_at": now()}}
+#    )
+#    # 2. Notify the customer
+#    notifications.insert_one({
+#        "recipient_id": str(query_obj.get("customer_id") or query_obj.get("email")),
+#        "message": f"New reply to your query: '{query_obj.get('subject')}'",
+#        "type": "support_reply",
+#        "timestamp": now(),
+#        "read": False
+#    })
+#    return {"message": "Reply sent successfully"}
+
+# ✅ FIXED: Renamed this function to 'get_audit_logs' to avoid duplicate name 'audit'
+@router.get("/admin/audit-logs")
+def get_audit_logs(role: str = Header(None)):
+    verify_admin(role)
+    return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
+
+# ✅ FIXED: Renamed this function to 'get_fraud_logs' to avoid duplicate name 'audit'
+@router.get("/admin/logs")
+def get_fraud_logs(role: str = Header(None)):
+    verify_admin(role)
+    # CRITICAL: If you want notifications to work, the logs in fraud_logs 
+    # MUST contain the 'customer_id' field.
+    return list(fraud_logs.find({}, {"_id": 0}).sort([("verified",1),("timestamp", -1)]))
+
+@router.get("/admin/notifications")
+def get_admin_notifications(role: str = Header(None)):
+    verify_admin(role)
+    notifs = list(notifications.find({"recipient_id": "ADMIN"}).sort("timestamp", -1))
+    for n in notifs:
+        n["_id"] = str(n["_id"])
+    return notifs
+
+# -------- LOG STATUS UPDATES --------
+class StatusUpdate(BaseModel):
+    Policy_id: str
+    status: str
+    reason: Optional[str] = ""
+
+
+@router.post("/admin/logs/update-status")
+def update_log_status(
+    data: StatusUpdate,
+    role: str = Header(None)
+):
+    verify_admin(role)
+
+    try:
+        result = fraud_logs.update_one(
+            {"Policy_id": data.Policy_id},
+            {
+                "$set": {
+                    "status": data.status,
+                    "verified": True,
+                    "admin_reason": data.reason,
+                    "updated_at": now()
+                }
+            }
+        )
+
+        if result.modified_count > 0:
+            audit_logs.insert_one({
+                "action": data.status.upper(),  # APPROVED / DECLINED
+                "details": f"Approved claim for customer {customer_id}"
+                    if data.status.lower() == "approved"
+                    else f"Declined claim for customer {customer_id}",
+
+                "timestamp": datetime.utcnow().isoformat()
+            })
+
+        return {
+            "message": "Success",
+            "modified_count": result.modified_count
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+import React, { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Bell, ShieldAlert, Home, FileText, UserPlus, UserMinus, ScrollText, MessageSquare, ClipboardList, Menu } from "lucide-react"; 
+import Notifications from "../components/Notifications";
+import API from "../services/api";
+
+function AdminLayout({ children }) {
+  const [open, setOpen] = useState(true);
+  const [showNotif, setShowNotif] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const navigate = useNavigate();
+
+  const logout = () => {
+    localStorage.clear(); 
+    navigate("/login", { replace: true });
+  };
+
+  const fetchAdminNotifs = async () => {
+    try {
+      const res = await API.get("/admin/notifications?recipient_id=ADMIN");
+      setNotifications(res.data);
+    } catch (err) {
+      console.error("Auth Error in Admin Layout:", err.response?.status);
+    }
+  };
+
+  useEffect(() => {
+    fetchAdminNotifs();
+    const interval = setInterval(fetchAdminNotifs, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  return (
+    // ✅ Changed main wrapper to bg-slate-950 (Near Black)
+    <div className="min-h-screen flex flex-col font-sans bg-slate-950 text-slate-200">
+      
+      {/* --- TOP NAVBAR --- */}
+      <div className="bg-slate-900 text-white flex justify-between items-center px-6 py-4 shadow-2xl z-50 border-b border-slate-800">
+        <h1 className="text-xl font-bold flex items-center gap-3">
+          <div className="bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20">
+            <ShieldAlert size={24} className="text-emerald-400" />
+          </div>
+          <span className="tracking-tight text-white">Insurance Admin <span className="text-emerald-400">Portal</span></span>
+        </h1>
+
+        <div className="flex items-center gap-6">
+          <div className="relative">
+            <button
+              onClick={() => setShowNotif(!showNotif)}
+              className="relative p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-full transition-all"
+            >
+              <Bell size={22} />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 w-5 h-5 bg-emerald-500 text-[10px] text-white flex items-center justify-center rounded-full border-2 border-slate-900 font-bold">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+
+            {showNotif && (
+              <Notifications 
+                notifications={notifications} 
+                setNotifications={setNotifications}
+                onClose={() => setShowNotif(false)} 
+                role="admin" 
+              />
+            )}
+          </div>
+
+          <div className="h-8 w-[1px] bg-slate-800 mx-2"></div>
+
+          <div className="flex flex-col items-end">
+            <span className="text-sm font-bold text-white">System Administrator</span>
+            <span className="text-[10px] text-emerald-500 uppercase tracking-widest font-black">Secure Session</span>
+          </div>
+
+          <button
+            onClick={logout}
+            className="bg-rose-600 px-5 py-2 rounded-xl font-bold text-sm hover:bg-rose-500 transition-all active:scale-95 shadow-lg shadow-rose-900/40"
+          >
+            Logout
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* --- SIDEBAR --- */}
+        <div className={`bg-slate-900 text-slate-400 transition-all duration-500 ${open ? "w-72" : "w-20"} flex flex-col border-r border-slate-800 shadow-2xl`}>
+          <div className="p-4 flex justify-center border-b border-slate-800/50 mb-4">
+            <button 
+              onClick={() => setOpen(!open)} 
+              className="p-2 hover:bg-white/5 rounded-lg transition-colors text-slate-400"
+            >
+              <Menu size={24} />
+            </button>
+          </div>
+
+          <nav className="flex-1 px-3 space-y-2 overflow-y-auto">
+            <NavItem to="/admin/dashboard" icon={<Home size={20}/>} label="Dashboard" open={open} />
+            <NavItem to="/admin/Issue-policy" icon={<FileText size={20}/>} label="Issue Policy" open={open} />
+            <NavItem to="/admin/add" icon={<UserPlus size={20}/>} label="Add Dealer" open={open} />
+            <NavItem to="/admin/delete" icon={<UserMinus size={20}/>} label="Manage Dealers" open={open} />
+            <NavItem to="/admin/logs" icon={<ScrollText size={20}/>} label="Fraud Logs" open={open} />
+            
+            <Link to="/admin/policy-requests" className={`flex items-center gap-4 p-3.5 rounded-xl hover:bg-emerald-500/10 hover:text-emerald-400 transition-all group ${!open && "justify-center"}`}>
+               <ClipboardList size={20} className="group-hover:scale-110 transition-transform"/>
+               {open && <span className="font-medium flex-1 text-sm tracking-wide">Policy Requests</span>}
+               {open && unreadCount > 0 && <span className="bg-emerald-500 text-[10px] px-2 py-0.5 rounded-full text-white font-bold">NEW</span>}
+            </Link>
+
+            <NavItem to="/admin/customer-queries" icon={<MessageSquare size={20}/>} label="Queries" open={open} />
+            <NavItem to="/admin/audit-logs" icon={<ScrollText size={20}/>} label="Audit Logs" open={open} />
+          </nav>
+        </div>
+
+        {/* --- MAIN PAGE CONTENT --- */}
+        {/* ✅ Changed background to bg-slate-950 and container to bg-slate-900 */}
+        <main className="flex-1 bg-slate-950 p-8 overflow-y-auto">
+          <div className="max-w-7xl mx-auto">
+            <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl min-h-[80vh] text-slate-200">
+              {children}
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+const NavItem = ({ to, icon, label, open }) => (
+  <Link 
+    to={to} 
+    className={`flex items-center gap-4 p-3.5 rounded-xl hover:bg-emerald-500/10 hover:text-emerald-400 transition-all group ${!open && "justify-center"}`}
+  >
+    <div className="group-hover:scale-110 transition-transform">{icon}</div>
+    {open && <span className="font-medium text-sm tracking-wide">{label}</span>}
+  </Link>
+);
+
+export default AdminLayout;
