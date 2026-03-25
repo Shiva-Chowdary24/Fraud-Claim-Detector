@@ -1,435 +1,392 @@
-from fastapi import APIRouter, HTTPException, Header
-from database import policy_requests, issued_policies, notifications, audit_logs, queries, fraud_logs,policies
-from datetime import datetime
-from bson import ObjectId
-import random
-from pydantic import BaseModel
-from typing import Optional
-
-router = APIRouter()
-
-# ✅ HELPER: Using utcnow() is good, but ensure datetime is imported
-def now():
-    return datetime.utcnow()
-
-# ✅ HELPER: Security Gatekeeper
-def verify_admin(role: str):
-    if role != "admin":
-        raise HTTPException(status_code=403, detail="Unauthorized: Admin access required.")
-
-def log_admin_action(admin_email: str, action: str, details: str):
-    audit_logs.insert_one({
-        "admin":admin_email,
-        "action":action,
-        "details":details,
-        "timestamp":datetime.utcnow(),
-    })
-# -------- POLICY APPROVALS --------
-
-@router.get("/admin/policy-requests")
-def get_requests(role: str = Header(None)):
-    verify_admin(role)
-    try:
-        results = list(policy_requests.find({"status": "Pending"}))
-        for r in results:
-            r["_id"] = str(r["_id"]) 
-        return results
-    except Exception as e:
-        raise HTTPException(500, f"Error: {str(e)}")
-
-
-@router.post("/admin/policy-approve/{request_id}")
-def approve(request_id: str, role: str = Header(None)):
-    verify_admin(role)
-
-    try:
-        req = policy_requests.find_one({"_id": ObjectId(request_id)})
-        if not req:
-            raise HTTPException(404, "Application not found")
-
-        policy_master = policies.find_one({
-            "plan_name": req.get("plan_name")
-        })
-
-        if not policy_master:
-            raise HTTPException(404, "Policy not found in master collection")
-
-        plan_name = req.get("plan_name", "POL")
-        prefix = plan_name[:3].upper()
-        generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
-
-        issued_data = {
-            "policy_id": generated_id,
-            "customer_id": req.get("customer_id"),
-            "plan_name": plan_name,
-            "email": req.get("email"),
-            "plan_type": policy_master.get("plan_type"),
-            "premium_amount": policy_master.get("premium_amount"),
-            "total_claim_amount": policy_master.get("total_claim_amount"),
-            "tenure": policy_master.get("tenure"),
-            "description": policy_master.get("description"),
-            "benefits": policy_master.get("benefits"),
-            "status": "Active",
-            "approved_at": now()
-        }
-
-        issued_policies.insert_one(issued_data)
-        policy_requests.delete_one({"_id": ObjectId(request_id)})
-        
-        notifications.insert_one({
-            "recipient_id": str(req.get("customer_id")),
-            "message": f" Policy '{plan_name}' has been Issued Successfully.",
-            "link": "/customer/issued-policies",
-            "type": "policy_approved",
-            "timestamp": now(),
-            "read": False
-        })
-
-        # ✅ AUDIT LOG (FIXED)
-        audit_logs.insert_one({
-            "action": "POLICY_ISSUED",
-            "details": f"Issued policy {plan_name} to customer {req.get('customer_id')}",
-            "timestamp": datetime.utcnow().isoformat()
-        })
-
-        return {
-            "message": "Approved",
-            "policy_id": generated_id
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/admin/policy-decline/{request_id}")
-def decline_policy(request_id: str, role: str = Header(None)):
-    verify_admin(role)
-
-    try:
-        # ✅ Fetch request
-        req = policy_requests.find_one({"_id": ObjectId(request_id)})
-        if not req:
-            raise HTTPException(status_code=404, detail="Application not found")
-
-        customer_id = req.get("customer_id")
-
-        # ✅ Send notification to customer
-        notifications.insert_one({
-            "recipient_id": str(customer_id),
-            "message": (
-                "Your policy request was declined. "
-                "The policy was not issued. "
-                "Please contact the administrator through support."
-            ),
-            "link": "/customer/ask-question",
-            "type": "policy_declined",
-            "timestamp": now(),
-            "read": False
-        })
-
-        # ✅ Audit log
-        audit_logs.insert_one({
-            "action": "POLICY_DECLINED",
-            "details": f"Declined policy request for customer {customer_id}",
-            "timestamp": datetime.utcnow().isoformat()
-        })
-
-        # ✅ Delete the request record
-        policy_requests.delete_one({"_id": ObjectId(request_id)})
-
-        return {
-            "message": "Policy request declined and customer notified"
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/admin/audit-logs")
-def get_audit_logs(role: str = Header(None)):
-    verify_admin(role)
-    return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
-
-# ✅ FIXED: Renamed this function to 'get_fraud_logs' to avoid duplicate name 'audit'
-@router.get("/admin/logs")
-def get_fraud_logs(role: str = Header(None)):
-    verify_admin(role)
-    # CRITICAL: If you want notifications to work, the logs in fraud_logs 
-    # MUST contain the 'customer_id' field.
-    return list(fraud_logs.find({}, {"_id": 0}).sort([("verified",1),("timestamp", -1)]))
-
-@router.get("/admin/notifications")
-def get_admin_notifications(role: str = Header(None)):
-    verify_admin(role)
-    notifs = list(notifications.find({"recipient_id": "ADMIN"}).sort("timestamp", -1))
-    for n in notifs:
-        n["_id"] = str(n["_id"])
-    return notifs
-
-# -------- LOG STATUS UPDATES --------
-class StatusUpdate(BaseModel):
-    Policy_id: str
-    status: str
-    reason: Optional[str] = ""
-
-
-@router.post("/admin/logs/update-status")
-
-def update_log_status(data: StatusUpdate, role: str = Header(None)):
-
-    verify_admin(role)
-
-    try:
-
-        # 1. Get the log first to find the customer_id
-
-        log_entry = fraud_logs.find_one({"Policy_id": data.Policy_id})
-
-        if not log_entry:
-
-             log_entry = fraud_logs.find_one({"policy_id": data.Policy_id})
-
-        if not log_entry:
-
-            raise HTTPException(status_code=404, detail="Claim log not found")
-
-        cust_id = log_entry.get("customer_id")
-
-        # 2. Update the status
-
-        fraud_logs.update_one(
-
-            {"_id": log_entry["_id"]},
-
-            {
-
-                "$set": {
-
-                    "status": data.status,
-
-                    "verified": True,
-
-                    "admin_reason": data.reason,
-
-                    "updated_at": datetime.utcnow()
-
-                }
-
-            }
-
-        )
-
-        # ✅ 3. DYNAMIC REDIRECTION LOGIC
-
-        # Determine link based on status (case-insensitive check)
-
-        target_link = "/customer/amount-predict" if data.status.lower() == "approved" else "/customer/ask-question"
-        msg=f"Your claim for Policy {data.Policy_id} has been {data.status}, Click here to get an Estimation of Claimable amount." if data.status.lower()=="approved" else f"Your claim for Policy {data.Policy_id} has been {data.status}, Contact Administrator."
-        # 4. NOTIFY CUSTOMER
-
-        notifications.insert_one({
-
-            "recipient_id": str(cust_id),
-
-            "message": msg,
-
-            "link": target_link, 
-
-            "type": "claim_update",
-
-            "timestamp": datetime.utcnow(),
-
-            "read": False
-
-        })
-
-        return {"message": f"Claim {data.status} successfully"}
-
-    except Exception as e:
-
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
-// import React from 'react';
-// import { useNavigate } from 'react-router-dom';
-// import { Bell, Clock, ChevronRight, Circle, Trash2 } from 'lucide-react';
-// import API from '../services/api';
-// import { toast } from 'react-toastify';
-
-// const Notifications = ({ notifications, onClose, role, setNotifications }) => {
+import axios from "axios";
+
+const API = axios.create({
+  // Use your backend URL
+  baseURL: import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8000",
+  headers: { "Content-Type": "application/json" },
+});
+
+// ✅ GLOBAL INTERCEPTOR: Attaches 'role' to every request header
+API.interceptors.request.use(
+  (config) => {
+    const role = localStorage.getItem("role");
+    if (role) {
+      config.headers["role"] = role; // This makes 'role' appear in Network Tab
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+export default API;
+// import { useState } from "react";
+// import { useNavigate } from "react-router-dom";
+// import API from "../services/api";
+// import CustSidebar from "../components/CustSidebar";
+// import CustNavbar from "../components/CustNavbar";
+// import { AlertCircle, DollarSign, X, ShieldAlert, Loader2 } from "lucide-react";
+// import { toast } from "react-toastify";
+
+// const DateInput = ({ name, value, onChange, placeholder }) => (
+//   <div className="flex flex-col gap-1">
+//     <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest text-left">{placeholder}</label>
+//     <input
+//       type={value ? "date" : "text"}
+//       name={name}
+//       value={value || ""}
+//       onChange={onChange}
+//       onFocus={(e) => (e.target.type = "date")}
+//       onBlur={(e) => !e.target.value && (e.target.type = "text")}
+//       placeholder={placeholder}
+//       className="bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+//       required
+//     />
+//   </div>
+// );
+
+// function ClaimAmount() {
 //   const navigate = useNavigate();
+//   const [submitting, setSubmitting] = useState(false);
+//   const [isSuspicious, setIsSuspicious] = useState(false);
+  
+//   const [form, setForm] = useState({
+//     Policy_id: "",
+//     policy_start_date: "",
+//     incident_date: "",
+//     report_date: "",
+//     annual_premium: "",
+//     deductible: "",
+//     claim_amount: "",
+//     payment_method: "",
+//     channel: "",
+//     police_reported: "",
+//     injury_severity: "",
+//     num_prior_claims: "",
+//   });
 
-//   // 1. Erase single notification on click
-//   const handleItemClick = async (notif) => {
-//     // Remove from UI immediately for speed
-//     if (setNotifications) {
-//       setNotifications(prev => prev.filter(n => n._id !== notif._id));
-//     }
+//   const handleChange = (e) => {
+//     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+//     if (isSuspicious) setIsSuspicious(false);
+//   };
+
+//   const handleSubmit = async (e) => {
+//     e.preventDefault();
+//     setSubmitting(true);
+
+//     const autoID = localStorage.getItem("customer_id");
+//     const payload = { ...form, customer_id: autoID };
 
 //     try {
-//       await API.delete(`/${role}/notifications/erase/${notif._id}`);
-//     } catch (e) {
-//       console.error("Database sync failed");
+//       const res = await API.post("/predict", payload);
+      
+//       if (res.data.fraud_prediction === 0) {
+//         toast.success("AI Analysis: Claim Verified");
+//         // ✅ CONNECTED: Now navigating to the intermediate dialog page
+//         navigate("/customer/predict-claim", { 
+//           state: { 
+//             autoApproved: true,
+//             ...form,
+//             policyId: form.Policy_id,
+//             claimAmount: form.claim_amount 
+//           } 
+//         });
+//       } else {
+//         setIsSuspicious(true);
+//         toast.warning("Risk Flagged: Awaiting Admin Review");
+//       }
+//     } catch (err) {
+//       console.error("Verification Engine Failure", err);
+//       toast.error("Error linking Customer ID to Fraud Log");
 //     } finally {
-//       navigate(notif.link);
-//       onClose();
+//       setSubmitting(false);
 //     }
 //   };
 
-//   // 2. Erase all notifications for current user/admin
-//   const handleClearAll = async () => {
-//     try {
-//       const recipientId = role === "admin" ? "ADMIN" : localStorage.getItem("customer_id");
-      
-//       // Pass recipient_id as query param to match Python @app.delete
-//       await API.delete(`/${role}/notifications/clear-all`, {
-//         params: { recipient_id: recipientId }
-//       });
-      
-//       if (setNotifications) setNotifications([]); 
-//       onClose();
-//       toast.success("Inbox cleared");
-//     } catch (e) {
-//       toast.error("Failed to clear notifications");
-//     }
-//   };
+//   const selectClass = "bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none appearance-none cursor-pointer mt-5";
+//   const inputClass = "bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-500";
 
 //   return (
-//     <div className="absolute right-0 mt-4 w-80 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl z-50 overflow-hidden ring-1 ring-white/10">
-//       {/* Header */}
-//       <div className="p-4 bg-slate-800/50 border-b border-slate-800 flex justify-between items-center">
-//         <h3 className="text-sm font-bold text-white flex items-center gap-2">
-//           <Bell size={16} className="text-blue-400" /> Notifications
-//         </h3>
-//         {notifications.length > 0 && (
-//           <button onClick={handleClearAll} className="text-[10px] text-slate-500 hover:text-red-400 font-bold uppercase flex items-center gap-1 transition-colors">
-//             <Trash2 size={10} /> Clear All
-//           </button>
-//         )}
-//       </div>
-      
-//       {/* List */}
-//       <div className="max-h-[400px] overflow-y-auto">
-//         {notifications.length === 0 ? (
-//           <div className="p-10 text-center text-slate-600">
-//             <Bell size={32} className="mx-auto mb-2 opacity-10" />
-//             <p className="text-xs">No new alerts</p>
-//           </div>
-//         ) : (
-//           notifications.map((n) => (
-//             <div key={n._id} onClick={() => handleItemClick(n)} className="p-4 border-b border-white/5 hover:bg-blue-600/10 cursor-pointer flex items-start gap-3 group transition-all">
-//               <div className="mt-1"><Circle size={8} className="fill-blue-500 text-blue-500 animate-pulse" /></div>
-//               <div className="flex-1 text-left">
-//                 <p className="text-xs text-slate-200 font-medium group-hover:text-white leading-relaxed">{n.message}</p>
-//                 <div className="flex items-center justify-between mt-2">
-//                    <span className="text-[9px] text-slate-600 flex items-center gap-1 font-bold uppercase tracking-tighter">
-//                      <Clock size={10} /> {n.timestamp ? new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
-//                    </span>
-//                    <ChevronRight size={12} className="text-slate-600 group-hover:text-blue-400 transition-colors" />
+//     <div className="flex min-h-screen bg-[#0a1628] font-mono text-white">
+//       <CustSidebar />
+//       <div className="flex-1 flex flex-col overflow-hidden">
+//         <CustNavbar />
+//         <main className="p-8 overflow-y-auto">
+//           <div className="max-w-4xl mx-auto border border-white p-1">
+//             {isSuspicious ? (
+//               <div className="bg-black border border-white p-16 relative animate-in zoom-in duration-300">
+//                 <button onClick={() => setIsSuspicious(false)} className="absolute top-4 right-4 border border-white p-2 hover:bg-white hover:text-black transition-all">
+//                   <X size={24} />
+//                 </button>
+//                 <div className="text-center space-y-8">
+//                   <ShieldAlert size={80} className="mx-auto text-red-500" />
+//                   <div className="space-y-4">
+//                     <h2 className="text-3xl font-black uppercase text-red-500 tracking-tighter">Security Alert</h2>
+//                     <div className="p-6 border border-red-500 bg-red-500/5">
+//                       <p className="text-lg uppercase font-bold text-white italic">It seems that your claim is suspicious.</p>
+//                       <p className="text-[10px] text-gray-400 mt-3 uppercase tracking-[0.3em] font-bold text-center">Please wait until admin reviews the claim.</p>
+//                     </div>
+//                   </div>
+//                   <p className="text-[8px] text-gray-800 uppercase pt-4 tracking-[0.5em]">Auth_Failure_Code: FLAG_01</p>
 //                 </div>
 //               </div>
-//             </div>
-//           ))
-//         )}
+//             ) : (
+//               <div className="bg-[#111e32] border border-white shadow-2xl">
+//                 <div className="bg-[#1a2c46] p-6 text-white flex items-center gap-4 border-b border-white">
+//                   <div className="bg-black p-3 border border-gray-700 text-left">
+//                     <DollarSign className="text-blue-400" size={24} />
+//                   </div>
+//                   <div className="text-left">
+//                     <h2 className="text-xl font-bold uppercase tracking-widest">Policy Claim Request</h2>
+//                     <p className="text-[10px] text-slate-400 uppercase">Input all relevant metrics for AI verification.</p>
+//                   </div>
+//                 </div>
+//                 <form onSubmit={handleSubmit} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 text-left">
+//                   <div className="flex flex-col gap-1"><label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Policy ID</label>
+//                   <input type="text" name="Policy_id" placeholder="Enter ID" onChange={handleChange} value={form.Policy_id} className={inputClass} required /></div>
+//                   <DateInput name="policy_start_date" value={form.policy_start_date} onChange={handleChange} placeholder="Policy Start Date" />
+//                   <DateInput name="incident_date" value={form.incident_date} onChange={handleChange} placeholder="Incident Occurrence" />
+//                   <DateInput name="report_date" value={form.report_date} onChange={handleChange} placeholder="Official Report Date" />
+//                   <div className="flex flex-col gap-1 text-left"><label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Annual Premium</label>
+//                   <input type="number" name="annual_premium" placeholder="0.00" required onChange={handleChange} value={form.annual_premium} className={inputClass} /></div>
+//                   <div className="flex flex-col gap-1 text-left"><label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Deductible</label>
+//                   <input type="number" name="deductible" placeholder="0.00" required onChange={handleChange} value={form.deductible} className={inputClass} /></div>
+//                   <div className="flex flex-col gap-1 text-left"><label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Requested Claim Amount</label>
+//                   <input type="number" name="claim_amount" placeholder="0.00" required onChange={handleChange} value={form.claim_amount} className={inputClass} /></div>
+//                   <select name="payment_method" required onChange={handleChange} value={form.payment_method} className={selectClass}>
+//                     <option value="">Payment Method</option><option>Cash</option><option>Crypto</option><option>Bank Transfer</option>
+//                   </select>
+//                   <select name="channel" required onChange={handleChange} value={form.channel} className={selectClass}>
+//                     <option value="">Submission Channel</option><option>Agent</option><option>Online</option>
+//                   </select>
+//                   <select name="police_reported" required onChange={handleChange} value={form.police_reported} className={selectClass}>
+//                     <option value="">Police Reported?</option><option>Yes</option><option>No</option>
+//                   </select>
+//                   <select name="injury_severity" required onChange={handleChange} value={form.injury_severity} className={selectClass}>
+//                     <option value="">Injury Severity</option><option>None</option><option>Normal</option><option>Critical</option><option>Major</option>
+//                   </select>
+//                   <div className="flex flex-col gap-1 md:col-span-2 text-left"><label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Number of Prior Claims</label>
+//                   <input type="number" name="num_prior_claims" placeholder="0" required onChange={handleChange} value={form.num_prior_claims} className={inputClass} /></div>
+//                   <div className="md:col-span-2 pt-6">
+//                     <button type="submit" disabled={submitting} className="w-full border border-white py-5 text-lg font-black uppercase hover:bg-white hover:text-black transition-all flex justify-center items-center gap-4 group">
+//                       {submitting ? <><Loader2 className="animate-spin" size={20} /> ANALYZING_DATA...</> : <>Verify and Initiate Claim <ArrowRight size={20} className="group-hover:translate-x-2 transition-transform" /></>}
+//                     </button>
+//                   </div>
+//                 </form>
+//               </div>
+//             )}
+//           </div>
+//         </main>
 //       </div>
 //     </div>
 //   );
-// };
+// }
 
-// export default Notifications;
+// const ArrowRight = ({ size, className }) => (
+//   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}>
+//     <path d="M5 12h14M12 5l7 7-7 7"/>
+//   </svg>
+// );
 
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Bell, Clock, ChevronRight, Circle, Trash2 } from 'lucide-react';
-import API from '../services/api';
-import { toast } from 'react-toastify';
-const Notifications = ({ notifications, onClose, role, setNotifications }) => {
+// export default ClaimAmount;
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import API from "../services/api";
+import CustSidebar from "../components/CustSidebar";
+import CustNavbar from "../components/CustNavbar";
+import {
+ DollarSign,
+ Loader2,
+ ArrowRight,
+ FileText,
+ CalendarDays,
+ UserCog,
+ Clock3,
+ CheckCircle2,
+ AlertTriangle
+} from "lucide-react";
+import { toast } from "react-toastify";
+const ModernDateInput = ({ name, value, onChange, label, icon: Icon }) => (
+<div className="flex flex-col gap-1.5">
+<label className="text-xs font-medium text-slate-400 flex items-center gap-2">
+<Icon size={14} className="text-blue-400" />
+     {label}
+</label>
+<input
+     type="date"
+     name={name}
+     value={value || ""}
+     max={new Date().toISOString().split("T")[0]} // Prevents selecting future dates in UI
+     onChange={onChange}
+     className="bg-slate-800/50 border border-slate-700 text-white p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all text-sm w-full"
+     required
+   />
+</div>
+);
+const ModernSelect = ({ name, value, onChange, label, children, icon: Icon }) => (
+<div className="flex flex-col gap-1.5">
+<label className="text-xs font-medium text-slate-400 flex items-center gap-2">
+<Icon size={14} className="text-blue-400" />
+     {label}
+</label>
+<div className="relative">
+<select
+       name={name}
+       value={value}
+       onChange={onChange}
+       required
+       className="bg-slate-800/50 border border-slate-700 text-white p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all text-sm w-full appearance-none cursor-pointer pr-10"
+>
+       {children}
+</select>
+<div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+       ▼
+</div>
+</div>
+</div>
+);
+function ClaimAmount() {
  const navigate = useNavigate();
- // 1. Erase single notification on click
- const handleItemClick = async (notif) => {
-   // Optimistic UI Update: Remove from UI immediately for speed
-   if (setNotifications) {
-     setNotifications(prev => prev.filter(n => n._id !== notif._id));
+ const [submitting, setSubmitting] = useState(false);
+ const [isSuspicious, setIsSuspicious] = useState(false);
+ const [form, setForm] = useState({
+   Policy_id: "",
+   policy_start_date: "",
+   incident_date: "",
+   report_date: "",
+   annual_premium: "",
+   deductible: "",
+   claim_amount: "",
+   payment_method: "",
+   channel: "",
+   police_reported: "",
+   injury_severity: "",
+   num_prior_claims: "",
+ });
+ const handleChange = (e) => {
+   setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+   if (isSuspicious) setIsSuspicious(false);
+ };
+ // ✅ Date Logic Validation
+ const validateDates = () => {
+   const today = new Date();
+   const start = new Date(form.policy_start_date);
+   const incident = new Date(form.incident_date);
+   const report = new Date(form.report_date);
+   // 1. Future Date Check
+   if (start > today || incident > today || report > today) {
+     toast.error("Dates cannot be in the future.");
+     return false;
    }
+   // 2. Incident >= Policy Start
+   if (incident < start) {
+     toast.error("Incident date must be on or after the Policy Start date.");
+     return false;
+   }
+   // 3. Reporting >= Incident
+   if (report < incident) {
+     toast.error("Reporting date must be on or after the Incident date.");
+     return false;
+   }
+   return true;
+ };
+ const handleSubmit = async (e) => {
+   e.preventDefault();
+   // Trigger Validation
+   if (!validateDates()) return;
+   setSubmitting(true);
+   const autoID = localStorage.getItem("customer_id") || "CUST_DEFAULT";
+   const payload = { ...form, customer_id: autoID };
    try {
-     // ✅ Added 'role' header to satisfy verify_admin(role) on backend
-     await API.delete(`/${role}/notifications/erase/${notif._id}`, {
-       headers: { "role": role }
-     });
-   } catch (e) {
-     console.error("Database sync failed", e);
+     const res = await API.post("/predict", payload);
+     if (res.data.fraud_prediction === 0) {
+       toast.success("Initial Verification Passed");
+       navigate("/customer/predict-claim", {
+         state: { autoApproved: true, ...form }
+       });
+     } else {
+       setIsSuspicious(true);
+     }
+   } catch (err) {
+     toast.error("Verification system error.");
    } finally {
-     // Ensure the link exists before navigating
-     if (notif.link) navigate(notif.link);
-     onClose();
+     setSubmitting(false);
    }
  };
- // 2. Erase all notifications for current user/admin
- const handleClearAll = async () => {
-   try {
-     const recipientId = role === "admin" ? "ADMIN" : localStorage.getItem("customer_id");
-     // ✅ Added 'role' header and ensured recipient_id is sent
-     await API.delete(`/${role}/notifications/clear-all`, {
-       params: { recipient_id: recipientId },
-       headers: { "role": role }
-     });
-     if (setNotifications) setNotifications([]);
-     onClose();
-     toast.success("Inbox cleared");
-   } catch (e) {
-     toast.error("Failed to clear notifications");
-     console.error(e);
-   }
- };
+ const inputClass = "bg-slate-800/50 border border-slate-700 text-white p-3 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none text-sm";
+ const labelClass = "text-xs font-medium text-slate-400 flex items-center gap-2";
  return (
-<div className="absolute right-0 mt-4 w-80 bg-[#0f172a] border border-slate-800 rounded-3xl shadow-2xl z-50 overflow-hidden ring-1 ring-white/10 backdrop-blur-xl">
-     {/* Header */}
-<div className="p-4 bg-slate-800/50 border-b border-slate-800 flex justify-between items-center">
-<h3 className="text-[11px] font-black text-white uppercase tracking-widest flex items-center gap-2">
-<Bell size={14} className="text-blue-400" /> Notifications
-</h3>
-       {notifications.length > 0 && (
-<button
-           onClick={handleClearAll}
-           className="text-[9px] text-slate-500 hover:text-red-400 font-black uppercase flex items-center gap-1 transition-all active:scale-95"
->
-<Trash2 size={10} /> Clear All
-</button>
-       )}
+<div className="flex min-h-screen bg-slate-950 font-sans text-white">
+<CustSidebar />
+<div className="flex-1 flex flex-col overflow-hidden">
+<CustNavbar />
+<main className="p-6 md:p-8 overflow-y-auto flex-1 bg-slate-900">
+<div className="max-w-5xl mx-auto">
+           {isSuspicious ? (
+<div className="bg-slate-800/50 border border-slate-700 rounded-3xl p-12 text-center shadow-xl animate-in fade-in zoom-in duration-300">
+<div className="mx-auto w-20 h-20 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-6">
+<Clock3 size={40} className="text-amber-400" />
 </div>
-     {/* List */}
-<div className="max-h-[400px] overflow-y-auto custom-scrollbar">
-       {notifications.length === 0 ? (
-<div className="p-12 text-center">
-<Bell size={32} className="mx-auto mb-3 text-slate-800 opacity-20" />
-<p className="text-[10px] text-slate-600 uppercase font-bold tracking-widest">No new alerts</p>
-</div>
-       ) : (
-         notifications.map((n) => (
-<div
-             key={n._id}
-             onClick={() => handleItemClick(n)}
-             className="p-4 border-b border-white/5 hover:bg-blue-600/5 cursor-pointer flex items-start gap-3 group transition-all"
->
-<div className="mt-1">
-<Circle size={6} className="fill-blue-500 text-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-</div>
-<div className="flex-1 text-left">
-<p className="text-[11px] text-slate-300 font-medium group-hover:text-white leading-relaxed transition-colors">
-                 {n.message}
+<h2 className="text-2xl font-bold">Verification Pending</h2>
+<p className="text-slate-400 mt-2 max-w-sm mx-auto text-sm">
+                 This claim requires manual review by our administration team. You will be notified once the review is complete.
 </p>
-<div className="flex items-center justify-between mt-2">
-<span className="text-[9px] text-slate-600 flex items-center gap-1 font-bold uppercase tracking-tighter">
-<Clock size={10} /> {n.timestamp ? new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Recently"}
-</span>
-<ChevronRight size={12} className="text-slate-700 group-hover:text-blue-400 group-hover:translate-x-0.5 transition-all" />
+<div className="mt-8 flex justify-center gap-4">
+<button onClick={() => setIsSuspicious(false)} className="text-sm text-slate-400 hover:text-white underline">Edit Form</button>
+<button onClick={() => navigate("/customer/dashboard")} className="bg-blue-600 px-6 py-2 rounded-lg text-sm font-bold">Back to Home</button>
 </div>
 </div>
+           ) : (
+<div className="bg-slate-800/50 border border-slate-700 rounded-3xl shadow-xl overflow-hidden">
+<div className="p-6 border-b border-slate-700 bg-slate-800/80 flex items-center gap-3">
+<FileText className="text-blue-400" />
+<h2 className="text-lg font-bold tracking-tight">Policy Claim Request</h2>
 </div>
-         ))
-       )}
+<form onSubmit={handleSubmit} className="p-8 space-y-8">
+<div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div className="flex flex-col gap-1.5 md:col-span-2">
+<label className={labelClass}><FileText size={14} className="text-blue-400"/>Policy ID</label>
+<input type="text" name="Policy_id" placeholder="Enter Policy ID" onChange={handleChange} value={form.Policy_id} className={inputClass} required />
+</div>
+<ModernDateInput name="policy_start_date" value={form.policy_start_date} onChange={handleChange} label="Policy Start Date" icon={CalendarDays} />
+<ModernDateInput name="incident_date" value={form.incident_date} onChange={handleChange} label="Incident Occurrence" icon={CalendarDays} />
+<ModernDateInput name="report_date" value={form.report_date} onChange={handleChange} label="Official Report Date" icon={CalendarDays} />
+</div>
+<div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-4">
+<div className="flex flex-col gap-1.5"><label className={labelClass}>Annual Premium</label>
+<input type="number" name="annual_premium" placeholder="0.00" required onChange={handleChange} value={form.annual_premium} className={inputClass} /></div>
+<div className="flex flex-col gap-1.5"><label className={labelClass}>Deductible</label>
+<input type="number" name="deductible" placeholder="0.00" required onChange={handleChange} value={form.deductible} className={inputClass} /></div>
+<div className="flex flex-col gap-1.5"><label className={labelClass}>Claim Amount</label>
+<input type="number" name="claim_amount" placeholder="0.00" required onChange={handleChange} value={form.claim_amount} className={inputClass} /></div>
+</div>
+<div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+<ModernSelect name="payment_method" onChange={handleChange} value={form.payment_method} label="Payment Method" icon={DollarSign}>
+<option value="">Select Method</option><option>Cash</option><option>Crypto</option><option>Bank Transfer</option>
+</ModernSelect>
+<ModernSelect name="channel" onChange={handleChange} value={form.channel} label="Submission Channel" icon={FileText}>
+<option value="">Select Channel</option><option>Agent</option><option>Online</option>
+</ModernSelect>
+<ModernSelect name="police_reported" onChange={handleChange} value={form.police_reported} label="Police Reported?" icon={AlertTriangle}>
+<option value="">Select Option</option><option>Yes</option><option>No</option>
+</ModernSelect>
+<ModernSelect name="injury_severity" onChange={handleChange} value={form.injury_severity} label="Injury Severity" icon={AlertTriangle}>
+<option value="">Select Severity</option><option>None</option><option>Normal</option><option>Critical</option><option>Major</option>
+</ModernSelect>
+<div className="flex flex-col gap-1.5 md:col-span-2"><label className={labelClass}><UserCog size={14} className="text-blue-400"/>Prior Claims</label>
+<input type="number" name="num_prior_claims" placeholder="0" required onChange={handleChange} value={form.num_prior_claims} className={inputClass} /></div>
+</div>
+<button type="submit" disabled={submitting} className="w-full bg-blue-600 hover:bg-blue-700 py-4 rounded-xl text-sm font-bold transition-all flex justify-center items-center gap-2 group">
+                   {submitting ? <Loader2 className="animate-spin" size={18} /> : <>Verify Claim <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></>}
+</button>
+</form>
+</div>
+           )}
+</div>
+</main>
 </div>
 </div>
  );
-};
-export default Notifications;
+}
+export default ClaimAmount;
