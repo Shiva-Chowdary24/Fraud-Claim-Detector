@@ -1,409 +1,435 @@
-@app.get("/notifications/get/{recipient_id}")
-def get_notifications(recipient_id: str):
+from fastapi import APIRouter, HTTPException, Header
+from database import policy_requests, issued_policies, notifications, audit_logs, queries, fraud_logs,policies
+from datetime import datetime
+from bson import ObjectId
+import random
+from pydantic import BaseModel
+from typing import Optional
+
+router = APIRouter()
+
+# ✅ HELPER: Using utcnow() is good, but ensure datetime is imported
+def now():
+    return datetime.utcnow()
+
+# ✅ HELPER: Security Gatekeeper
+def verify_admin(role: str):
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Unauthorized: Admin access required.")
+
+def log_admin_action(admin_email: str, action: str, details: str):
+    audit_logs.insert_one({
+        "admin":admin_email,
+        "action":action,
+        "details":details,
+        "timestamp":datetime.utcnow(),
+    })
+# -------- POLICY APPROVALS --------
+
+@router.get("/admin/policy-requests")
+def get_requests(role: str = Header(None)):
+    verify_admin(role)
     try:
-        print(f"DEBUG: Searching notifications for recipient:'{recipient_id}'")
-        query={"recipient_id":recipient_id}
-        cursor = notifications.find({"recipient_id": str(recipient_id)}).sort("_id", -1).limit(20)
-        results = []
-        for doc in list(cursor):
-            doc["_id"] = str(doc["_id"])
-            results.append(doc)
-        print(f"Fetched {len(results)} notifications for recipient_id")
+        results = list(policy_requests.find({"status": "Pending"}))
+        for r in results:
+            r["_id"] = str(r["_id"]) 
         return results
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(500, f"Error: {str(e)}")
 
-class FalseClaimRequest(BaseModel):
-    customer_id:str
-    policy_id:str
-    reason:str
-FalseClaimRequest.model_rebuild()
-@router.post("/customer/false-claim")
-def submit_false_claim(data: FalseClaimRequest=Body(...)):
+
+@router.post("/admin/policy-approve/{request_id}")
+def approve(request_id: str, role: str = Header(None)):
+    verify_admin(role)
+
     try:
-        # ✅ 1. SAVE THE FALSE CLAIM (THIS WAS MISSING)
-        print(f"DEBUG: Received claim or {data.policy_id}")
-        claim_data = {
-            "customer_id": str(data.customer_id),
-            "Policy_id": data.policy_id,
-            "reason": data.reason,
-            "status": "Pending",
-            "timestamp": datetime.utcnow()
+        req = policy_requests.find_one({"_id": ObjectId(request_id)})
+        if not req:
+            raise HTTPException(404, "Application not found")
+
+        policy_master = policies.find_one({
+            "plan_name": req.get("plan_name")
+        })
+
+        if not policy_master:
+            raise HTTPException(404, "Policy not found in master collection")
+
+        plan_name = req.get("plan_name", "POL")
+        prefix = plan_name[:3].upper()
+        generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
+
+        issued_data = {
+            "policy_id": generated_id,
+            "customer_id": req.get("customer_id"),
+            "plan_name": plan_name,
+            "email": req.get("email"),
+            "plan_type": policy_master.get("plan_type"),
+            "premium_amount": policy_master.get("premium_amount"),
+            "total_claim_amount": policy_master.get("total_claim_amount"),
+            "tenure": policy_master.get("tenure"),
+            "description": policy_master.get("description"),
+            "benefits": policy_master.get("benefits"),
+            "status": "Active",
+            "approved_at": now()
         }
 
-        fraud_logs.insert_one(claim_data)
-
-        # ✅ 2. NOTIFY ADMIN (CORRECT PLACE)
+        issued_policies.insert_one(issued_data)
+        policy_requests.delete_one({"_id": ObjectId(request_id)})
+        
         notifications.insert_one({
-            "recipient_id": "ADMIN",
-            "message": f" Review the Claim submitted by customer {data.policy_id}",
-            "link": "/admin/logs",
-            "type": "false_claim_request",
-            "timestamp": datetime.utcnow(),
+            "recipient_id": str(req.get("customer_id")),
+            "message": f" Policy '{plan_name}' has been Issued Successfully.",
+            "link": "/customer/issued-policies",
+            "type": "policy_approved",
+            "timestamp": now(),
             "read": False
         })
-        return {"message": "False claim submitted successfully"}
+
+        # ✅ AUDIT LOG (FIXED)
+        audit_logs.insert_one({
+            "action": "POLICY_ISSUED",
+            "details": f"Issued policy {plan_name} to customer {req.get('customer_id')}",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        return {
+            "message": "Approved",
+            "policy_id": generated_id
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-// import React, { useState, useEffect } from "react";
-// import { Link, useNavigate } from "react-router-dom";
-// import { Bell, ShieldAlert, Home, FileText, UserPlus, UserMinus, ScrollText, MessageSquare, ClipboardList, Menu } from "lucide-react"; 
-// import Notifications from "../components/Notifications";
-// import API from "../services/api";
 
-// function AdminLayout({ children }) {
-//   const [open, setOpen] = useState(true);
-//   const [showNotif, setShowNotif] = useState(false);
-//   const [notifications, setNotifications] = useState([]);
+@router.post("/admin/policy-decline/{request_id}")
+def decline_policy(request_id: str, role: str = Header(None)):
+    verify_admin(role)
+
+    try:
+        # ✅ Fetch request
+        req = policy_requests.find_one({"_id": ObjectId(request_id)})
+        if not req:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        customer_id = req.get("customer_id")
+
+        # ✅ Send notification to customer
+        notifications.insert_one({
+            "recipient_id": str(customer_id),
+            "message": (
+                "Your policy request was declined. "
+                "The policy was not issued. "
+                "Please contact the administrator through support."
+            ),
+            "link": "/customer/ask-question",
+            "type": "policy_declined",
+            "timestamp": now(),
+            "read": False
+        })
+
+        # ✅ Audit log
+        audit_logs.insert_one({
+            "action": "POLICY_DECLINED",
+            "details": f"Declined policy request for customer {customer_id}",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        # ✅ Delete the request record
+        policy_requests.delete_one({"_id": ObjectId(request_id)})
+
+        return {
+            "message": "Policy request declined and customer notified"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/admin/audit-logs")
+def get_audit_logs(role: str = Header(None)):
+    verify_admin(role)
+    return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
+
+# ✅ FIXED: Renamed this function to 'get_fraud_logs' to avoid duplicate name 'audit'
+@router.get("/admin/logs")
+def get_fraud_logs(role: str = Header(None)):
+    verify_admin(role)
+    # CRITICAL: If you want notifications to work, the logs in fraud_logs 
+    # MUST contain the 'customer_id' field.
+    return list(fraud_logs.find({}, {"_id": 0}).sort([("verified",1),("timestamp", -1)]))
+
+@router.get("/admin/notifications")
+def get_admin_notifications(role: str = Header(None)):
+    verify_admin(role)
+    notifs = list(notifications.find({"recipient_id": "ADMIN"}).sort("timestamp", -1))
+    for n in notifs:
+        n["_id"] = str(n["_id"])
+    return notifs
+
+# -------- LOG STATUS UPDATES --------
+class StatusUpdate(BaseModel):
+    Policy_id: str
+    status: str
+    reason: Optional[str] = ""
+
+
+@router.post("/admin/logs/update-status")
+
+def update_log_status(data: StatusUpdate, role: str = Header(None)):
+
+    verify_admin(role)
+
+    try:
+
+        # 1. Get the log first to find the customer_id
+
+        log_entry = fraud_logs.find_one({"Policy_id": data.Policy_id})
+
+        if not log_entry:
+
+             log_entry = fraud_logs.find_one({"policy_id": data.Policy_id})
+
+        if not log_entry:
+
+            raise HTTPException(status_code=404, detail="Claim log not found")
+
+        cust_id = log_entry.get("customer_id")
+
+        # 2. Update the status
+
+        fraud_logs.update_one(
+
+            {"_id": log_entry["_id"]},
+
+            {
+
+                "$set": {
+
+                    "status": data.status,
+
+                    "verified": True,
+
+                    "admin_reason": data.reason,
+
+                    "updated_at": datetime.utcnow()
+
+                }
+
+            }
+
+        )
+
+        # ✅ 3. DYNAMIC REDIRECTION LOGIC
+
+        # Determine link based on status (case-insensitive check)
+
+        target_link = "/customer/amount-predict" if data.status.lower() == "approved" else "/customer/ask-question"
+        msg=f"Your claim for Policy {data.Policy_id} has been {data.status}, Click here to get an Estimation of Claimable amount." if data.status.lower()=="approved" else f"Your claim for Policy {data.Policy_id} has been {data.status}, Contact Administrator."
+        # 4. NOTIFY CUSTOMER
+
+        notifications.insert_one({
+
+            "recipient_id": str(cust_id),
+
+            "message": msg,
+
+            "link": target_link, 
+
+            "type": "claim_update",
+
+            "timestamp": datetime.utcnow(),
+
+            "read": False
+
+        })
+
+        return {"message": f"Claim {data.status} successfully"}
+
+    except Exception as e:
+
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+// import React from 'react';
+// import { useNavigate } from 'react-router-dom';
+// import { Bell, Clock, ChevronRight, Circle, Trash2 } from 'lucide-react';
+// import API from '../services/api';
+// import { toast } from 'react-toastify';
+
+// const Notifications = ({ notifications, onClose, role, setNotifications }) => {
 //   const navigate = useNavigate();
 
-//   const logout = () => {
-//     localStorage.clear(); 
-//     navigate("/login", { replace: true });
-//   };
+//   // 1. Erase single notification on click
+//   const handleItemClick = async (notif) => {
+//     // Remove from UI immediately for speed
+//     if (setNotifications) {
+//       setNotifications(prev => prev.filter(n => n._id !== notif._id));
+//     }
 
-//   const fetchAdminNotifs = async () => {
 //     try {
-//       const res = await API.get("/admin/notifications?recipient_id=ADMIN");
-//       setNotifications(res.data);
-//     } catch (err) {
-//       console.error("Auth Error in Admin Layout:", err.response?.status);
+//       await API.delete(`/${role}/notifications/erase/${notif._id}`);
+//     } catch (e) {
+//       console.error("Database sync failed");
+//     } finally {
+//       navigate(notif.link);
+//       onClose();
 //     }
 //   };
 
-//   useEffect(() => {
-//     fetchAdminNotifs();
-//     const interval = setInterval(fetchAdminNotifs, 10000);
-//     return () => clearInterval(interval);
-//   }, []);
-
-//   const unreadCount = notifications.filter((n) => !n.read).length;
+//   // 2. Erase all notifications for current user/admin
+//   const handleClearAll = async () => {
+//     try {
+//       const recipientId = role === "admin" ? "ADMIN" : localStorage.getItem("customer_id");
+      
+//       // Pass recipient_id as query param to match Python @app.delete
+//       await API.delete(`/${role}/notifications/clear-all`, {
+//         params: { recipient_id: recipientId }
+//       });
+      
+//       if (setNotifications) setNotifications([]); 
+//       onClose();
+//       toast.success("Inbox cleared");
+//     } catch (e) {
+//       toast.error("Failed to clear notifications");
+//     }
+//   };
 
 //   return (
-//     // ✅ Changed main wrapper to bg-slate-950 (Near Black)
-//     <div className="min-h-screen flex flex-col font-sans bg-slate-950 text-slate-200">
-      
-//       {/* --- TOP NAVBAR --- */}
-//       <div className="bg-slate-900 text-white flex justify-between items-center px-6 py-4 shadow-2xl z-50 border-b border-slate-800">
-//         <h1 className="text-xl font-bold flex items-center gap-3">
-//           <div className="bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20">
-//             <ShieldAlert size={24} className="text-emerald-400" />
-//           </div>
-//           <span className="tracking-tight text-white">Insurance Admin <span className="text-emerald-400">Portal</span></span>
-//         </h1>
-
-//         <div className="flex items-center gap-6">
-//           <div className="relative">
-//             <button
-//               onClick={() => setShowNotif(!showNotif)}
-//               className="relative p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-full transition-all"
-//             >
-//               <Bell size={22} />
-//               {unreadCount > 0 && (
-//                 <span className="absolute top-1 right-1 w-5 h-5 bg-emerald-500 text-[10px] text-white flex items-center justify-center rounded-full border-2 border-slate-900 font-bold">
-//                   {unreadCount}
-//                 </span>
-//               )}
-//             </button>
-
-//             {showNotif && (
-//               <Notifications 
-//                 notifications={notifications} 
-//                 setNotifications={setNotifications}
-//                 onClose={() => setShowNotif(false)} 
-//                 role="admin" 
-//               />
-//             )}
-//           </div>
-
-//           <div className="h-8 w-[1px] bg-slate-800 mx-2"></div>
-
-//           <div className="flex flex-col items-end">
-//             <span className="text-sm font-bold text-white">System Administrator</span>
-//             <span className="text-[10px] text-emerald-500 uppercase tracking-widest font-black">Secure Session</span>
-//           </div>
-
-//           <button
-//             onClick={logout}
-//             className="bg-rose-600 px-5 py-2 rounded-xl font-bold text-sm hover:bg-rose-500 transition-all active:scale-95 shadow-lg shadow-rose-900/40"
-//           >
-//             Logout
+//     <div className="absolute right-0 mt-4 w-80 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl z-50 overflow-hidden ring-1 ring-white/10">
+//       {/* Header */}
+//       <div className="p-4 bg-slate-800/50 border-b border-slate-800 flex justify-between items-center">
+//         <h3 className="text-sm font-bold text-white flex items-center gap-2">
+//           <Bell size={16} className="text-blue-400" /> Notifications
+//         </h3>
+//         {notifications.length > 0 && (
+//           <button onClick={handleClearAll} className="text-[10px] text-slate-500 hover:text-red-400 font-bold uppercase flex items-center gap-1 transition-colors">
+//             <Trash2 size={10} /> Clear All
 //           </button>
-//         </div>
+//         )}
 //       </div>
-
-//       <div className="flex flex-1 overflow-hidden">
-//         {/* --- SIDEBAR --- */}
-//         <div className={`bg-slate-900 text-slate-400 transition-all duration-500 ${open ? "w-72" : "w-20"} flex flex-col border-r border-slate-800 shadow-2xl`}>
-//           <div className="p-4 flex justify-center border-b border-slate-800/50 mb-4">
-//             <button 
-//               onClick={() => setOpen(!open)} 
-//               className="p-2 hover:bg-white/5 rounded-lg transition-colors text-slate-400"
-//             >
-//               <Menu size={24} />
-//             </button>
+      
+//       {/* List */}
+//       <div className="max-h-[400px] overflow-y-auto">
+//         {notifications.length === 0 ? (
+//           <div className="p-10 text-center text-slate-600">
+//             <Bell size={32} className="mx-auto mb-2 opacity-10" />
+//             <p className="text-xs">No new alerts</p>
 //           </div>
-
-//           <nav className="flex-1 px-3 space-y-2 overflow-y-auto">
-//             <NavItem to="/admin/dashboard" icon={<Home size={20}/>} label="Dashboard" open={open} />
-//             <NavItem to="/admin/Issue-policy" icon={<FileText size={20}/>} label="Issue Policy" open={open} />
-//             <NavItem to="/admin/add" icon={<UserPlus size={20}/>} label="Add Dealer" open={open} />
-//             <NavItem to="/admin/delete" icon={<UserMinus size={20}/>} label="Manage Dealers" open={open} />
-//             <NavItem to="/admin/logs" icon={<ScrollText size={20}/>} label="Fraud Logs" open={open} />
-            
-//             <Link to="/admin/policy-requests" className={`flex items-center gap-4 p-3.5 rounded-xl hover:bg-emerald-500/10 hover:text-emerald-400 transition-all group ${!open && "justify-center"}`}>
-//                <ClipboardList size={20} className="group-hover:scale-110 transition-transform"/>
-//                {open && <span className="font-medium flex-1 text-sm tracking-wide">Policy Requests</span>}
-//                {open && unreadCount > 0 && <span className="bg-emerald-500 text-[10px] px-2 py-0.5 rounded-full text-white font-bold">NEW</span>}
-//             </Link>
-
-//             <NavItem to="/admin/customer-queries" icon={<MessageSquare size={20}/>} label="Queries" open={open} />
-//             <NavItem to="/admin/audit-logs" icon={<ScrollText size={20}/>} label="Audit Logs" open={open} />
-//           </nav>
-//         </div>
-
-//         {/* --- MAIN PAGE CONTENT --- */}
-//         {/* ✅ Changed background to bg-slate-950 and container to bg-slate-900 */}
-//         <main className="flex-1 bg-slate-950 p-8 overflow-y-auto">
-//           <div className="max-w-7xl mx-auto">
-//             <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl min-h-[80vh] text-slate-200">
-//               {children}
+//         ) : (
+//           notifications.map((n) => (
+//             <div key={n._id} onClick={() => handleItemClick(n)} className="p-4 border-b border-white/5 hover:bg-blue-600/10 cursor-pointer flex items-start gap-3 group transition-all">
+//               <div className="mt-1"><Circle size={8} className="fill-blue-500 text-blue-500 animate-pulse" /></div>
+//               <div className="flex-1 text-left">
+//                 <p className="text-xs text-slate-200 font-medium group-hover:text-white leading-relaxed">{n.message}</p>
+//                 <div className="flex items-center justify-between mt-2">
+//                    <span className="text-[9px] text-slate-600 flex items-center gap-1 font-bold uppercase tracking-tighter">
+//                      <Clock size={10} /> {n.timestamp ? new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
+//                    </span>
+//                    <ChevronRight size={12} className="text-slate-600 group-hover:text-blue-400 transition-colors" />
+//                 </div>
+//               </div>
 //             </div>
-//           </div>
-//         </main>
+//           ))
+//         )}
 //       </div>
 //     </div>
 //   );
-// }
+// };
 
-// const NavItem = ({ to, icon, label, open }) => (
-//   <Link 
-//     to={to} 
-//     className={`flex items-center gap-4 p-3.5 rounded-xl hover:bg-emerald-500/10 hover:text-emerald-400 transition-all group ${!open && "justify-center"}`}
-//   >
-//     <div className="group-hover:scale-110 transition-transform">{icon}</div>
-//     {open && <span className="font-medium text-sm tracking-wide">{label}</span>}
-//   </Link>
-// );
+// export default Notifications;
 
-// export default AdminLayout;
-import React, { useState, useEffect } from "react";
-
-import { Link, useNavigate } from "react-router-dom";
-
-import { 
-
-  Bell, 
-
-  ShieldAlert, 
-
-  Home, 
-
-  FileText, 
-
-  UserPlus, 
-
-  UserMinus, 
-
-  ScrollText, 
-
-  MessageSquare, 
-
-  ClipboardList, 
-
-  Menu 
-
-} from "lucide-react"; 
-
-import Notifications from "../components/Notifications";
-
-import API from "../services/api";
-
-function AdminLayout({ children }) {
-
-  const [open, setOpen] = useState(true);
-
-  const [showNotif, setShowNotif] = useState(false);
-
-  const [notifications, setNotifications] = useState([]);
-
-  const navigate = useNavigate();
-
-  const logout = () => {
-
-    localStorage.clear(); 
-
-    navigate("/login", { replace: true });
-
-  };
-
-  const fetchAdminNotifs = async () => {
-
-    try {
-
-      // Fetching notifications specifically for the Admin
-
-      const res = await API.get("/notifications/get/ADMIN");
-      console.log("Admin Notifications Received:",res.data)
-
-      setNotifications(res.data);
-
-    } catch (err) {
-
-      console.error("Error fetching admin notifications:", err);
-
-    }
-
-  };
-
-  useEffect(() => {
-
-    fetchAdminNotifs();
-
-    // Poll every 10 seconds for new claim or policy requests
-
-    const interval = setInterval(fetchAdminNotifs, 1000);
-
-    return () => clearInterval(interval);
-
-  }, []);
-
-  const unreadCount = notifications.filter((n) => !n.read).length;
-
-  return (
-<div className="min-h-screen flex flex-col font-sans bg-slate-950 text-slate-200">
-
-      {/* --- TOP NAVBAR --- */}
-<div className="bg-slate-900 text-white flex justify-between items-center px-6 py-4 shadow-2xl z-50 border-b border-slate-800">
-<h1 className="text-xl font-bold flex items-center gap-3">
-<div className="bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20">
-<ShieldAlert size={24} className="text-emerald-400" />
-</div>
-<span className="tracking-tight text-white">
-
-            Insurance Admin <span className="text-emerald-400">Portal</span>
-</span>
-</h1>
-<div className="flex items-center gap-6">
-
-          {/* Bell Icon Notification System */}
-<div className="relative">
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, Clock, ChevronRight, Circle, Trash2 } from 'lucide-react';
+import API from '../services/api';
+import { toast } from 'react-toastify';
+const Notifications = ({ notifications, onClose, role, setNotifications }) => {
+ const navigate = useNavigate();
+ // 1. Erase single notification on click
+ const handleItemClick = async (notif) => {
+   // Optimistic UI Update: Remove from UI immediately for speed
+   if (setNotifications) {
+     setNotifications(prev => prev.filter(n => n._id !== notif._id));
+   }
+   try {
+     // ✅ Added 'role' header to satisfy verify_admin(role) on backend
+     await API.delete(`/${role}/notifications/erase/${notif._id}`, {
+       headers: { "role": role }
+     });
+   } catch (e) {
+     console.error("Database sync failed", e);
+   } finally {
+     // Ensure the link exists before navigating
+     if (notif.link) navigate(notif.link);
+     onClose();
+   }
+ };
+ // 2. Erase all notifications for current user/admin
+ const handleClearAll = async () => {
+   try {
+     const recipientId = role === "admin" ? "ADMIN" : localStorage.getItem("customer_id");
+     // ✅ Added 'role' header and ensured recipient_id is sent
+     await API.delete(`/${role}/notifications/clear-all`, {
+       params: { recipient_id: recipientId },
+       headers: { "role": role }
+     });
+     if (setNotifications) setNotifications([]);
+     onClose();
+     toast.success("Inbox cleared");
+   } catch (e) {
+     toast.error("Failed to clear notifications");
+     console.error(e);
+   }
+ };
+ return (
+<div className="absolute right-0 mt-4 w-80 bg-[#0f172a] border border-slate-800 rounded-3xl shadow-2xl z-50 overflow-hidden ring-1 ring-white/10 backdrop-blur-xl">
+     {/* Header */}
+<div className="p-4 bg-slate-800/50 border-b border-slate-800 flex justify-between items-center">
+<h3 className="text-[11px] font-black text-white uppercase tracking-widest flex items-center gap-2">
+<Bell size={14} className="text-blue-400" /> Notifications
+</h3>
+       {notifications.length > 0 && (
 <button
-
-              onClick={() => setShowNotif(!showNotif)}
-
-              className="relative p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-full transition-all"
+           onClick={handleClearAll}
+           className="text-[9px] text-slate-500 hover:text-red-400 font-black uppercase flex items-center gap-1 transition-all active:scale-95"
 >
-<Bell size={22} />
-
-              {unreadCount > 0 && (
-<span className="absolute top-1 right-1 w-5 h-5 bg-emerald-500 text-[10px] text-white flex items-center justify-center rounded-full border-2 border-slate-900 font-bold">
-
-                  {unreadCount}
+<Trash2 size={10} /> Clear All
+</button>
+       )}
+</div>
+     {/* List */}
+<div className="max-h-[400px] overflow-y-auto custom-scrollbar">
+       {notifications.length === 0 ? (
+<div className="p-12 text-center">
+<Bell size={32} className="mx-auto mb-3 text-slate-800 opacity-20" />
+<p className="text-[10px] text-slate-600 uppercase font-bold tracking-widest">No new alerts</p>
+</div>
+       ) : (
+         notifications.map((n) => (
+<div
+             key={n._id}
+             onClick={() => handleItemClick(n)}
+             className="p-4 border-b border-white/5 hover:bg-blue-600/5 cursor-pointer flex items-start gap-3 group transition-all"
+>
+<div className="mt-1">
+<Circle size={6} className="fill-blue-500 text-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+</div>
+<div className="flex-1 text-left">
+<p className="text-[11px] text-slate-300 font-medium group-hover:text-white leading-relaxed transition-colors">
+                 {n.message}
+</p>
+<div className="flex items-center justify-between mt-2">
+<span className="text-[9px] text-slate-600 flex items-center gap-1 font-bold uppercase tracking-tighter">
+<Clock size={10} /> {n.timestamp ? new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Recently"}
 </span>
-
-              )}
-</button>
-
-            {showNotif && (
-<Notifications 
-
-                notifications={notifications} 
-
-                setNotifications={setNotifications}
-
-                onClose={() => setShowNotif(false)} 
-
-                role="admin" 
-
-              />
-
-            )}
-</div>
-<div className="h-8 w-[1px] bg-slate-800 mx-2"></div>
-<div className="flex flex-col items-end">
-<span className="text-sm font-bold text-white">System Administrator</span>
-<span className="text-[10px] text-emerald-500 uppercase tracking-widest font-black">Secure Session</span>
-</div>
-<button
-
-            onClick={logout}
-
-            className="bg-rose-600 px-5 py-2 rounded-xl font-bold text-sm hover:bg-rose-500 transition-all active:scale-95 shadow-lg shadow-rose-900/40"
->
-
-            Logout
-</button>
+<ChevronRight size={12} className="text-slate-700 group-hover:text-blue-400 group-hover:translate-x-0.5 transition-all" />
 </div>
 </div>
-<div className="flex flex-1 overflow-hidden">
-
-        {/* --- SIDEBAR --- */}
-<div className={`bg-slate-900 text-slate-400 transition-all duration-500 ${open ? "w-72" : "w-20"} flex flex-col border-r border-slate-800 shadow-2xl`}>
-<div className="p-4 flex justify-center border-b border-slate-800/50 mb-4">
-<button 
-
-              onClick={() => setOpen(!open)} 
-
-              className="p-2 hover:bg-white/5 rounded-lg transition-colors text-slate-400"
->
-<Menu size={24} />
-</button>
 </div>
-<nav className="flex-1 px-3 space-y-2 overflow-y-auto">
-<NavItem to="/admin/dashboard" icon={<Home size={20}/>} label="Dashboard" open={open} />
-<NavItem to="/admin/Issue-policy" icon={<FileText size={20}/>} label="Issue Policy" open={open} />
-<NavItem to="/admin/add" icon={<UserPlus size={20}/>} label="Add Dealer" open={open} />
-<NavItem to="/admin/delete" icon={<UserMinus size={20}/>} label="Manage Dealers" open={open} />
-<NavItem to="/admin/logs" icon={<ScrollText size={20}/>} label="Fraud Logs" open={open} />
-
-            {/* Sidebar link for Policy Requests - Notification Badge Removed */}
-<Link 
-
-              to="/admin/policy-requests" 
-
-              className={`flex items-center gap-4 p-3.5 rounded-xl hover:bg-emerald-500/10 hover:text-emerald-400 transition-all group ${!open && "justify-center"}`}
->
-<ClipboardList size={20} className="group-hover:scale-110 transition-transform"/>
-
-               {open && <span className="font-medium flex-1 text-sm tracking-wide">Policy Requests</span>}
-</Link>
-<NavItem to="/admin/customer-queries" icon={<MessageSquare size={20}/>} label="Queries" open={open} />
-<NavItem to="/admin/audit-logs" icon={<ScrollText size={20}/>} label="Audit Logs" open={open} />
-</nav>
-</div>
-
-        {/* --- MAIN PAGE CONTENT --- */}
-<main className="flex-1 bg-slate-950 p-8 overflow-y-auto">
-<div className="max-w-7xl mx-auto">
-<div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl min-h-[80vh] text-slate-200">
-
-              {children}
+         ))
+       )}
 </div>
 </div>
-</main>
-</div>
-</div>
-
-  );
-
-}
-
-const NavItem = ({ to, icon, label, open }) => (
-<Link 
-
-    to={to} 
-
-    className={`flex items-center gap-4 p-3.5 rounded-xl hover:bg-emerald-500/10 hover:text-emerald-400 transition-all group ${!open && "justify-center"}`}
->
-<div className="group-hover:scale-110 transition-transform">{icon}</div>
-
-    {open && <span className="font-medium text-sm tracking-wide">{label}</span>}
-</Link>
-
-);
-
-export default AdminLayout;
- 
+ );
+};
+export default Notifications;
