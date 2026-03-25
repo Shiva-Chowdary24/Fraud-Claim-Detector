@@ -23,7 +23,13 @@ def now() -> str:
 def verify_admin(role: Optional[str]):
     if role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-
+def log_admin_action(admin_email: str, action: str, details: str):
+    audit_logs.insert_one({
+        "admin":admin_email,
+        "action":action,
+        "details":details,
+        "timestamp":datetime.utcnow(),
+    })
 # =====================================================
 # MODELS
 # =====================================================
