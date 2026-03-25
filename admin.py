@@ -1,21 +1,29 @@
 from fastapi import APIRouter, HTTPException, Header
 from database import policy_requests, issued_policies, notifications, audit_logs, queries, fraud_logs,policies
-from datetime import datetime
+from datetime import datetime,timezone
 from bson import ObjectId
 import random
 from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter()
 
 # ✅ HELPER: Using utcnow() is good, but ensure datetime is imported
 def now():
-    return datetime.utcnow().isoformat()
+    return datetime.utcnow()
 
 # ✅ HELPER: Security Gatekeeper
 def verify_admin(role: str):
     if role != "admin":
         raise HTTPException(status_code=403, detail="Unauthorized: Admin access required.")
 
+def log_admin_action(admin_email: str, action: str, details: str):
+    audit_logs.insert_one({
+        "admin":admin_email,
+        "action":action,
+        "details":details,
+        "timestamp":datetime.utcnow(),
+    })
 # -------- POLICY APPROVALS --------
 
 @router.get("/admin/policy-requests")
@@ -29,6 +37,7 @@ def get_requests(role: str = Header(None)):
     except Exception as e:
         raise HTTPException(500, f"Error: {str(e)}")
 
+
 @router.post("/admin/policy-approve/{request_id}")
 def approve(request_id: str, role: str = Header(None)):
     verify_admin(role)
@@ -38,7 +47,6 @@ def approve(request_id: str, role: str = Header(None)):
         if not req:
             raise HTTPException(404, "Application not found")
 
-        # ✅ FETCH FROM MASTER COLLECTION
         policy_master = policies.find_one({
             "plan_name": req.get("plan_name")
         })
@@ -53,26 +61,37 @@ def approve(request_id: str, role: str = Header(None)):
         issued_data = {
             "policy_id": generated_id,
             "customer_id": req.get("customer_id"),
-
-            # from request
-            "plan_name": req.get("plan_name"),
+            "plan_name": plan_name,
             "email": req.get("email"),
-
-            # 🔥 from policies collection (FIX)
             "plan_type": policy_master.get("plan_type"),
             "premium_amount": policy_master.get("premium_amount"),
             "total_claim_amount": policy_master.get("total_claim_amount"),
             "tenure": policy_master.get("tenure"),
             "description": policy_master.get("description"),
             "benefits": policy_master.get("benefits"),
-
             "status": "Active",
             "approved_at": now()
         }
 
         issued_policies.insert_one(issued_data)
-
         policy_requests.delete_one({"_id": ObjectId(request_id)})
+        
+        notifications.insert_one({
+            "recipient_id": str(req.get("customer_id")),
+            "message": f" Policy '{plan_name}' has been Issued Successfully.",
+            "link": "/customer/issued-policies",
+            "type": "policy_approved",
+            "timestamp": now(),
+            "read": False
+        })
+
+        # ✅ AUDIT LOG (FIXED)
+        log_admin_action(
+            "admin1@gmail.com",
+            "POLICY_ISSUED",
+            f"Issued policy {plan_name} to customer {req.get('customer_id')}",
+            
+        )
 
         return {
             "message": "Approved",
@@ -80,42 +99,53 @@ def approve(request_id: str, role: str = Header(None)):
         }
 
     except Exception as e:
-        print("ERROR:",str(e))
-        raise HTTPException(500, f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# -------- QUERIES, AUDIT & NOTIFICATIONS --------
 
-# @router.get("/admin/queries")
-# def get_queries(role: str = Header(None)):
-#    if role != "admin":
-#        raise HTTPException(status_code=403, detail="Admin access required")
-#    # Filter for Pending only so the list clears as you reply
-#    results = list(queries.find({"status": "Pending"}))
-#    for r in results:
-#        r["_id"] = str(r["_id"])
-#    return results
-# @router.post("/admin/reply/{query_id}")
-# def reply_query(query_id: str, data: dict):
-#    reply_text = data.get("reply")
-#    # 1. Update query status
-#    query_obj = queries.find_one({"_id": ObjectId(query_id)})
-#    if not query_obj:
-#        raise HTTPException(status_code=404, detail="Query not found")
-#    queries.update_one(
-#        {"_id": ObjectId(query_id)},
-#        {"$set": {"status": "Resolved", "reply": reply_text, "resolved_at": now()}}
-#    )
-#    # 2. Notify the customer
-#    notifications.insert_one({
-#        "recipient_id": str(query_obj.get("customer_id") or query_obj.get("email")),
-#        "message": f"New reply to your query: '{query_obj.get('subject')}'",
-#        "type": "support_reply",
-#        "timestamp": now(),
-#        "read": False
-#    })
-#    return {"message": "Reply sent successfully"}
+@router.post("/admin/policy-decline/{request_id}")
+def decline_policy(request_id: str, role: str = Header(None)):
+    verify_admin(role)
 
-# ✅ FIXED: Renamed this function to 'get_audit_logs' to avoid duplicate name 'audit'
+    try:
+        # ✅ Fetch request
+        req = policy_requests.find_one({"_id": ObjectId(request_id)})
+        if not req:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        customer_id = req.get("customer_id")
+
+        # ✅ Send notification to customer
+        notifications.insert_one({
+            "recipient_id": str(customer_id),
+            "message": (
+                "Your policy request was declined. "
+                "The policy was not issued. "
+                "Please contact the administrator through support."
+            ),
+            "link": "/customer/ask-question",
+            "type": "policy_declined",
+            "timestamp": now(),
+            "read": False
+        })
+
+        # ✅ Audit log
+        log_admin_action(
+            "admin1@gmail.com",
+            "POLICY_ISSUED",
+            f"Issued policy {plan_name} to customer {req.get('customer_id')}",
+            
+        )
+
+        # ✅ Delete the request record
+        policy_requests.delete_one({"_id": ObjectId(request_id)})
+
+        return {
+            "message": "Policy request declined and customer notified"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/admin/audit-logs")
 def get_audit_logs(role: str = Header(None)):
     verify_admin(role)
@@ -123,11 +153,55 @@ def get_audit_logs(role: str = Header(None)):
 
 # ✅ FIXED: Renamed this function to 'get_fraud_logs' to avoid duplicate name 'audit'
 @router.get("/admin/logs")
+
 def get_fraud_logs(role: str = Header(None)):
+
     verify_admin(role)
-    # CRITICAL: If you want notifications to work, the logs in fraud_logs 
-    # MUST contain the 'customer_id' field.
-    return list(fraud_logs.find({}, {"_id": 0}).sort("timestamp", -1))
+
+    logs = list(fraud_logs.find({}))
+
+    for log in logs:
+
+        log["_id"] = str(log["_id"])
+
+        log["Policy_id"] = log.get("Policy_id") or log.get("policy_id")
+
+    def sort_key(x):
+
+        verified = x.get("verified", False)
+
+        ts = x.get("timestamp")
+
+        dt = None
+
+        if isinstance(ts, datetime):
+
+            dt = ts
+
+        elif isinstance(ts, str):
+
+            try:
+
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+            except:
+
+                dt = datetime.min
+
+        else:
+
+            dt = datetime.min
+
+        # 🔥 THE FIX: If dt has a timezone (aware), convert to UTC and remove it (naive)
+
+        if dt.tzinfo is not None:
+
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+        return (verified, dt)
+
+    return sorted(logs, key=sort_key, reverse=True)
+ 
 
 @router.get("/admin/notifications")
 def get_admin_notifications(role: str = Header(None)):
@@ -138,23 +212,90 @@ def get_admin_notifications(role: str = Header(None)):
     return notifs
 
 # -------- LOG STATUS UPDATES --------
-
 class StatusUpdate(BaseModel):
     Policy_id: str
     status: str
-    reason: Optional[str]=""
+    reason: Optional[str] = ""
+
 
 @router.post("/admin/logs/update-status")
-def update_log_status(data: StatusUpdate, role: str = Header(None)): # ✅ Removed 'async' for PyMongo
-    verify_admin(role) # Added security check
+
+def update_log_status(data: StatusUpdate, role: str = Header(None)):
+
+    verify_admin(role)
+
     try:
-        # ✅ REAL LOGIC: Update the actual claim/fraud log in DB
-        result = fraud_logs.update_one(
-            {"Policy_id": data.Policy_id},
-            {"$set": {"status": data.status,"admin_reason":data.reason,"updated_at": now()}}
+
+        # 1. Get the log first to find the customer_id
+
+        log_entry = fraud_logs.find_one({"Policy_id": data.Policy_id})
+
+        if not log_entry:
+
+             log_entry = fraud_logs.find_one({"policy_id": data.Policy_id})
+
+        if not log_entry:
+
+            raise HTTPException(status_code=404, detail="Claim log not found")
+
+        cust_id = log_entry.get("customer_id")
+
+        # 2. Update the status
+
+        fraud_logs.update_one(
+
+            {"_id": log_entry["_id"]},
+
+            {
+
+                "$set": {
+
+                    "status": data.status,
+
+                    "verified": True,
+
+                    "admin_reason": data.reason,
+
+                    "updated_at": datetime.utcnow()
+
+                }
+
+            }
+
         )
-        
-        print(f"Updating {data.Policy_id} to {data.status}")
-        return {"message": "Success", "modified_count": result.modified_count}
+
+        # ✅ 3. DYNAMIC REDIRECTION LOGIC
+
+        # Determine link based on status (case-insensitive check)
+
+        target_link = "/customer/amount-predict" if data.status.lower() == "approved" else "/customer/ask-question"
+        msg=f"Your claim for Policy {data.Policy_id} has been {data.status}, Click here to get an Estimation of Claimable amount." if data.status.lower()=="approved" else f"Your claim for Policy {data.Policy_id} has been {data.status}, Contact Administrator."
+        # 4. NOTIFY CUSTOMER
+
+        notifications.insert_one({
+
+            "recipient_id": str(cust_id),
+
+            "message": msg,
+
+            "link": target_link, 
+
+            "type": "claim_update",
+
+            "timestamp": datetime.utcnow(),
+
+            "read": False
+
+        })
+        log_admin_action(
+            "admin@system.com", # The 'admin_email' argument
+            "Claim Status Updated", # The 'action' argument
+            f"Claim of Policy: {data.Policy_id} is {data.status}" # The 'details' argument
+            )
+
+        return {"message": f"Claim {data.status} successfully"}
+
     except Exception as e:
+
         raise HTTPException(status_code=500, detail=str(e))
+ 
