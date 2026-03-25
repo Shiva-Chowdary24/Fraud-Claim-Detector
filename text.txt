@@ -1,73 +1,39 @@
-from fastapi import FastAPI, HTTPException, Body, Query
+@router.post("/customer/false-claim")
+def submit_false_claim(data: FalseClaimRequest=Body(...)):
+    try:
+        # ✅ 1. SAVE THE FALSE CLAIM (THIS WAS MISSING)
+        claim_data = {
+            "customer_id": str(data.customer_id),
+            "policy_id": data.policy_id,
+            "reason": data.reason,
+            "status": "Pending",
+            "verified":False,
+            "timestamp": datetime.utcnow()
+        }
 
-from pymongo import MongoClient
+        fraud_logs.insert_one(claim_data)
 
-from bson import ObjectId
+        # ✅ 2. NOTIFY ADMIN (CORRECT PLACE)
+        try:
+            notif=notifications.insert_one({
+                "recipient_id": "ADMIN",
+                "message": f" Review the Claim submitted by customer Id: {data.customer_id} of Policy Id: {data.policy_id}",
+                "link": "/admin/logs",
+                "type": "false_claim_request",
+                "timestamp": datetime.utcnow(),
+                "read": False
+            })
+        except Exception as e:
+                print("Notification failed:,str(e)")
+        return {"message": "False claim submitted successfully"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-from typing import List
+every time when enter details for false claim
+in admin page 
+in fraud_logs im getting two records with same policy id
+one record is perfect another one is duplicate i only need original one
 
-
-from database import dealers
-
-
-router =APIRouter()
-
-# --- Database Connection (PyMongo) ---
-
-# --- Helper Function ---
-
-def dealer_helper(dealer) -> dict:
-
-    return {
-
-        "id": str(dealer["_id"]),
-
-        "Policy": dealer.get("Policy"),
-
-        "Policy Status": dealer.get("Policy Status"),
-
-        "Broker Dealer": dealer.get("Broker Dealer"),
-
-        "Issue date": dealer.get("Issue date"),
-
-        "Contribution": dealer.get("Contribution"),
-
-    }
-
-# --- 1. SEARCH BY POLICY ---
-
-
-
-@router.post("/admin/dealer/add", response_model=dict)
-
-def create_dealer(dealer: dict = Body(...)):
-
-    result = collection.insert_one(dealer)
-
-    created_dealer = collection.find_one({"_id": result.inserted_id})
-
-    return dealer_helper(created_dealer)
-
-
-
-
-# --- 6. DELETE ---
-
-@router.delete("/admin/dealer/delete/{id}")
-
-def delete_dealer(id: str):
-
-    if not ObjectId.is_valid(id):
-
-        raise HTTPException(status_code=400, detail="Invalid ID format")
-
-    delete_result = collection.delete_one({"_id": ObjectId(id)})
-
-    if delete_result.deleted_count == 1:
-
-        return {"message": "Dealer deleted successfully"}
-
-    raise HTTPException(status_code=404, detail="Dealer not found")
-
-
- 
+is these two codes are responsible 
+or else do i need to send other codes
