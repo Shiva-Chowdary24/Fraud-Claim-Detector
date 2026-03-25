@@ -1,3 +1,18 @@
+@app.get("/notifications/get/{recipient_id}")
+def get_notifications(recipient_id: str):
+    try:
+        print(f"DEBUG: Searching notifications for recipient:'{recipient_id}'")
+        query={"recipient_id":recipient_id}
+        cursor = notifications.find({"recipient_id": str(recipient_id)}).sort("_id", -1).limit(20)
+        results = []
+        for doc in list(cursor):
+            doc["_id"] = str(doc["_id"])
+            results.append(doc)
+        print(f"Fetched {len(results)} notifications for recipient_id")
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 class FalseClaimRequest(BaseModel):
     customer_id:str
     policy_id:str
