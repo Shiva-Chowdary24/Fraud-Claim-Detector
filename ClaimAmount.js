@@ -11,7 +11,6 @@ import {
  CalendarDays,
  UserCog,
  Clock3,
- CheckCircle2,
  AlertTriangle
 } from "lucide-react";
 import { toast } from "react-toastify";
@@ -25,7 +24,7 @@ const ModernDateInput = ({ name, value, onChange, label, icon: Icon }) => (
      type="date"
      name={name}
      value={value || ""}
-     max={new Date().toISOString().split("T")[0]} // Prevents selecting future dates in UI
+     max={new Date().toISOString().split("T")[0]}
      onChange={onChange}
      className="bg-slate-800/50 border border-slate-700 text-white p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all text-sm w-full"
      required
@@ -76,23 +75,19 @@ function ClaimAmount() {
    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
    if (isSuspicious) setIsSuspicious(false);
  };
- // ✅ Date Logic Validation
  const validateDates = () => {
    const today = new Date();
    const start = new Date(form.policy_start_date);
    const incident = new Date(form.incident_date);
    const report = new Date(form.report_date);
-   // 1. Future Date Check
    if (start > today || incident > today || report > today) {
      toast.error("Dates cannot be in the future.");
      return false;
    }
-   // 2. Incident >= Policy Start
    if (incident < start) {
      toast.error("Incident date must be on or after the Policy Start date.");
      return false;
    }
-   // 3. Reporting >= Incident
    if (report < incident) {
      toast.error("Reporting date must be on or after the Incident date.");
      return false;
@@ -101,22 +96,34 @@ function ClaimAmount() {
  };
  const handleSubmit = async (e) => {
    e.preventDefault();
-   // Trigger Validation
    if (!validateDates()) return;
    setSubmitting(true);
    const autoID = localStorage.getItem("customer_id") || "CUST_DEFAULT";
    const payload = { ...form, customer_id: autoID };
    try {
+     // 1. Get AI Prediction
      const res = await API.post("/predict", payload);
      if (res.data.fraud_prediction === 0) {
+       // ✅ Verified Claim Path
        toast.success("Initial Verification Passed");
        navigate("/customer/predict-claim", {
          state: { autoApproved: true, ...form }
        });
      } else {
+       // ❌ Suspicious Claim Path
+       // 2. Notify Admin via Backend (Saves to false_claims table)
+       await API.post("/customer/false-claim", {
+         customer_id: autoID,
+         policy_id: form.Policy_id,
+         reason: "AI detected suspicious claim",
+         claim_amount: form.claim_amount
+       });
+       // 3. Update UI to show the "Awaiting Review" screen
        setIsSuspicious(true);
+       toast.warning("Claim flagged for manual admin review.");
      }
    } catch (err) {
+     console.error("Verification Engine Failure", err);
      toast.error("Verification system error.");
    } finally {
      setSubmitting(false);
@@ -154,7 +161,7 @@ function ClaimAmount() {
 <form onSubmit={handleSubmit} className="p-8 space-y-8">
 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 <div className="flex flex-col gap-1.5 md:col-span-2">
-<label className={labelClass}><FileText size={14} className="text-blue-400"/>Policy ID</label>
+<label className={labelClass}><FileText size={14} className="text-blue-400" />Policy ID</label>
 <input type="text" name="Policy_id" placeholder="Enter Policy ID" onChange={handleChange} value={form.Policy_id} className={inputClass} required />
 </div>
 <ModernDateInput name="policy_start_date" value={form.policy_start_date} onChange={handleChange} label="Policy Start Date" icon={CalendarDays} />
@@ -182,7 +189,7 @@ function ClaimAmount() {
 <ModernSelect name="injury_severity" onChange={handleChange} value={form.injury_severity} label="Injury Severity" icon={AlertTriangle}>
 <option value="">Select Severity</option><option>None</option><option>Normal</option><option>Critical</option><option>Major</option>
 </ModernSelect>
-<div className="flex flex-col gap-1.5 md:col-span-2"><label className={labelClass}><UserCog size={14} className="text-blue-400"/>Prior Claims</label>
+<div className="flex flex-col gap-1.5 md:col-span-2"><label className={labelClass}><UserCog size={14} className="text-blue-400" />Prior Claims</label>
 <input type="number" name="num_prior_claims" placeholder="0" required onChange={handleChange} value={form.num_prior_claims} className={inputClass} /></div>
 </div>
 <button type="submit" disabled={submitting} className="w-full bg-blue-600 hover:bg-blue-700 py-4 rounded-xl text-sm font-bold transition-all flex justify-center items-center gap-2 group">
