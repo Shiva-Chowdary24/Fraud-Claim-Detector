@@ -1,369 +1,60 @@
-// import { useState } from "react";
-// import { useNavigate } from "react-router-dom";
-// import API from "../services/api";
-// import CustSidebar from "../components/CustSidebar";
-// import CustNavbar from "../components/CustNavbar";
-// import { AlertCircle, DollarSign, X, ShieldAlert, Loader2 } from "lucide-react";
-// import { toast } from "react-toastify";
+class StatusUpdate(BaseModel):
+    Policy_id: str
+    status: str
+    reason: Optional[str] = ""
 
-// const DateInput = ({ name, value, onChange, placeholder }) => (
-//   <div className="flex flex-col gap-1">
-//     <label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest text-left">{placeholder}</label>
-//     <input
-//       type={value ? "date" : "text"}
-//       name={name}
-//       value={value || ""}
-//       onChange={onChange}
-//       onFocus={(e) => (e.target.type = "date")}
-//       onBlur={(e) => !e.target.value && (e.target.type = "text")}
-//       placeholder={placeholder}
-//       className="bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-//       required
-//     />
-//   </div>
-// );
 
-// function ClaimAmount() {
-//   const navigate = useNavigate();
-//   const [submitting, setSubmitting] = useState(false);
-//   const [isSuspicious, setIsSuspicious] = useState(false);
-  
-//   const [form, setForm] = useState({
-//     Policy_id: "",
-//     policy_start_date: "",
-//     incident_date: "",
-//     report_date: "",
-//     annual_premium: "",
-//     deductible: "",
-//     claim_amount: "",
-//     payment_method: "",
-//     channel: "",
-//     police_reported: "",
-//     injury_severity: "",
-//     num_prior_claims: "",
-//   });
+@router.post("/admin/logs/update-status")
+def update_log_status(data: StatusUpdate, role: str = Header(None)):
+    verify_admin(role)
 
-//   const handleChange = (e) => {
-//     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
-//     if (isSuspicious) setIsSuspicious(false);
-//   };
+    try:
+        log_entry = fraud_logs.find_one({"policy_id": data.Policy_id})
+        if not log_entry:
+            raise HTTPException(404, "Claim log not found")
 
-//   const handleSubmit = async (e) => {
-//     e.preventDefault();
-//     setSubmitting(true);
+        cust_id = log_entry["customer_id"]
 
-//     const autoID = localStorage.getItem("customer_id");
-//     const payload = { ...form, customer_id: autoID };
+        fraud_logs.update_one(
+            {"_id": log_entry["_id"]},
+            {
+                "$set": {
+                    "status": data.status,
+                    "verified": True,
+                    "admin_reason": data.reason,
+                    "updated_at": now()
+                }
+            }
+        )
 
-//     try {
-//       const res = await API.post("/predict", payload);
-      
-//       if (res.data.fraud_prediction === 0) {
-//         toast.success("AI Analysis: Claim Verified");
-//         // ✅ CONNECTED: Now navigating to the intermediate dialog page
-//         navigate("/customer/predict-claim", { 
-//           state: { 
-//             autoApproved: true,
-//             ...form,
-//             policyId: form.Policy_id,
-//             claimAmount: form.claim_amount 
-//           } 
-//         });
-//       } else {
-//         setIsSuspicious(true);
-//         toast.warning("Risk Flagged: Awaiting Admin Review");
-//       }
-//     } catch (err) {
-//       console.error("Verification Engine Failure", err);
-//       toast.error("Error linking Customer ID to Fraud Log");
-//     } finally {
-//       setSubmitting(false);
-//     }
-//   };
+        # ✅ Notify customer ONLY (correct behavior)
+        link = (
+            "/customer/amount-predict"
+            if data.status.lower() == "approved"
+            else "/customer/ask-question"
+        )
 
-//   const selectClass = "bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none appearance-none cursor-pointer mt-5";
-//   const inputClass = "bg-[#1e293b]/50 border border-slate-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-500";
+        msg = (
+            f"✅ Your claim for Policy {data.Policy_id} has been approved."
+            if data.status.lower() == "approved"
+            else f"❌ Your claim for Policy {data.Policy_id} has been {data.status}."
+        )
 
-//   return (
-//     <div className="flex min-h-screen bg-[#0a1628] font-mono text-white">
-//       <CustSidebar />
-//       <div className="flex-1 flex flex-col overflow-hidden">
-//         <CustNavbar />
-//         <main className="p-8 overflow-y-auto">
-//           <div className="max-w-4xl mx-auto border border-white p-1">
-//             {isSuspicious ? (
-//               <div className="bg-black border border-white p-16 relative animate-in zoom-in duration-300">
-//                 <button onClick={() => setIsSuspicious(false)} className="absolute top-4 right-4 border border-white p-2 hover:bg-white hover:text-black transition-all">
-//                   <X size={24} />
-//                 </button>
-//                 <div className="text-center space-y-8">
-//                   <ShieldAlert size={80} className="mx-auto text-red-500" />
-//                   <div className="space-y-4">
-//                     <h2 className="text-3xl font-black uppercase text-red-500 tracking-tighter">Security Alert</h2>
-//                     <div className="p-6 border border-red-500 bg-red-500/5">
-//                       <p className="text-lg uppercase font-bold text-white italic">It seems that your claim is suspicious.</p>
-//                       <p className="text-[10px] text-gray-400 mt-3 uppercase tracking-[0.3em] font-bold text-center">Please wait until admin reviews the claim.</p>
-//                     </div>
-//                   </div>
-//                   <p className="text-[8px] text-gray-800 uppercase pt-4 tracking-[0.5em]">Auth_Failure_Code: FLAG_01</p>
-//                 </div>
-//               </div>
-//             ) : (
-//               <div className="bg-[#111e32] border border-white shadow-2xl">
-//                 <div className="bg-[#1a2c46] p-6 text-white flex items-center gap-4 border-b border-white">
-//                   <div className="bg-black p-3 border border-gray-700 text-left">
-//                     <DollarSign className="text-blue-400" size={24} />
-//                   </div>
-//                   <div className="text-left">
-//                     <h2 className="text-xl font-bold uppercase tracking-widest">Policy Claim Request</h2>
-//                     <p className="text-[10px] text-slate-400 uppercase">Input all relevant metrics for AI verification.</p>
-//                   </div>
-//                 </div>
-//                 <form onSubmit={handleSubmit} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 text-left">
-//                   <div className="flex flex-col gap-1"><label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Policy ID</label>
-//                   <input type="text" name="Policy_id" placeholder="Enter ID" onChange={handleChange} value={form.Policy_id} className={inputClass} required /></div>
-//                   <DateInput name="policy_start_date" value={form.policy_start_date} onChange={handleChange} placeholder="Policy Start Date" />
-//                   <DateInput name="incident_date" value={form.incident_date} onChange={handleChange} placeholder="Incident Occurrence" />
-//                   <DateInput name="report_date" value={form.report_date} onChange={handleChange} placeholder="Official Report Date" />
-//                   <div className="flex flex-col gap-1 text-left"><label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Annual Premium</label>
-//                   <input type="number" name="annual_premium" placeholder="0.00" required onChange={handleChange} value={form.annual_premium} className={inputClass} /></div>
-//                   <div className="flex flex-col gap-1 text-left"><label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Deductible</label>
-//                   <input type="number" name="deductible" placeholder="0.00" required onChange={handleChange} value={form.deductible} className={inputClass} /></div>
-//                   <div className="flex flex-col gap-1 text-left"><label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Requested Claim Amount</label>
-//                   <input type="number" name="claim_amount" placeholder="0.00" required onChange={handleChange} value={form.claim_amount} className={inputClass} /></div>
-//                   <select name="payment_method" required onChange={handleChange} value={form.payment_method} className={selectClass}>
-//                     <option value="">Payment Method</option><option>Cash</option><option>Crypto</option><option>Bank Transfer</option>
-//                   </select>
-//                   <select name="channel" required onChange={handleChange} value={form.channel} className={selectClass}>
-//                     <option value="">Submission Channel</option><option>Agent</option><option>Online</option>
-//                   </select>
-//                   <select name="police_reported" required onChange={handleChange} value={form.police_reported} className={selectClass}>
-//                     <option value="">Police Reported?</option><option>Yes</option><option>No</option>
-//                   </select>
-//                   <select name="injury_severity" required onChange={handleChange} value={form.injury_severity} className={selectClass}>
-//                     <option value="">Injury Severity</option><option>None</option><option>Normal</option><option>Critical</option><option>Major</option>
-//                   </select>
-//                   <div className="flex flex-col gap-1 md:col-span-2 text-left"><label className="text-[10px] text-slate-500 uppercase px-1 tracking-widest">Number of Prior Claims</label>
-//                   <input type="number" name="num_prior_claims" placeholder="0" required onChange={handleChange} value={form.num_prior_claims} className={inputClass} /></div>
-//                   <div className="md:col-span-2 pt-6">
-//                     <button type="submit" disabled={submitting} className="w-full border border-white py-5 text-lg font-black uppercase hover:bg-white hover:text-black transition-all flex justify-center items-center gap-4 group">
-//                       {submitting ? <><Loader2 className="animate-spin" size={20} /> ANALYZING_DATA...</> : <>Verify and Initiate Claim <ArrowRight size={20} className="group-hover:translate-x-2 transition-transform" /></>}
-//                     </button>
-//                   </div>
-//                 </form>
-//               </div>
-//             )}
-//           </div>
-//         </main>
-//       </div>
-//     </div>
-//   );
-// }
+        notifications.insert_one({
+            "recipient_id": str(cust_id),
+            "message": msg,
+            "link": link,
+            "type": "claim_update",
+            "timestamp": now(),
+            "read": False
+        })
 
-// const ArrowRight = ({ size, className }) => (
-//   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}>
-//     <path d="M5 12h14M12 5l7 7-7 7"/>
-//   </svg>
-// );
+        log_admin_action(
+            action="CLAIM_STATUS_UPDATED",
+            details=f"Policy {data.Policy_id} marked {data.status}"
+        )
 
-// export default ClaimAmount;
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import API from "../services/api";
-import CustSidebar from "../components/CustSidebar";
-import CustNavbar from "../components/CustNavbar";
-import {
- DollarSign,
- Loader2,
- ArrowRight,
- FileText,
- CalendarDays,
- UserCog,
- Clock3,
- CheckCircle2,
- AlertTriangle
-} from "lucide-react";
-import { toast } from "react-toastify";
-const ModernDateInput = ({ name, value, onChange, label, icon: Icon }) => (
-<div className="flex flex-col gap-1.5">
-<label className="text-xs font-medium text-slate-400 flex items-center gap-2">
-<Icon size={14} className="text-blue-400" />
-     {label}
-</label>
-<input
-     type="date"
-     name={name}
-     value={value || ""}
-     max={new Date().toISOString().split("T")[0]} // Prevents selecting future dates in UI
-     onChange={onChange}
-     className="bg-slate-800/50 border border-slate-700 text-white p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all text-sm w-full"
-     required
-   />
-</div>
-);
-const ModernSelect = ({ name, value, onChange, label, children, icon: Icon }) => (
-<div className="flex flex-col gap-1.5">
-<label className="text-xs font-medium text-slate-400 flex items-center gap-2">
-<Icon size={14} className="text-blue-400" />
-     {label}
-</label>
-<div className="relative">
-<select
-       name={name}
-       value={value}
-       onChange={onChange}
-       required
-       className="bg-slate-800/50 border border-slate-700 text-white p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all text-sm w-full appearance-none cursor-pointer pr-10"
->
-       {children}
-</select>
-<div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
-       ▼
-</div>
-</div>
-</div>
-);
-function ClaimAmount() {
- const navigate = useNavigate();
- const [submitting, setSubmitting] = useState(false);
- const [isSuspicious, setIsSuspicious] = useState(false);
- const [form, setForm] = useState({
-   Policy_id: "",
-   policy_start_date: "",
-   incident_date: "",
-   report_date: "",
-   annual_premium: "",
-   deductible: "",
-   claim_amount: "",
-   payment_method: "",
-   channel: "",
-   police_reported: "",
-   injury_severity: "",
-   num_prior_claims: "",
- });
- const handleChange = (e) => {
-   setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
-   if (isSuspicious) setIsSuspicious(false);
- };
- // ✅ Date Logic Validation
- const validateDates = () => {
-   const today = new Date();
-   const start = new Date(form.policy_start_date);
-   const incident = new Date(form.incident_date);
-   const report = new Date(form.report_date);
-   // 1. Future Date Check
-   if (start > today || incident > today || report > today) {
-     toast.error("Dates cannot be in the future.");
-     return false;
-   }
-   // 2. Incident >= Policy Start
-   if (incident < start) {
-     toast.error("Incident date must be on or after the Policy Start date.");
-     return false;
-   }
-   // 3. Reporting >= Incident
-   if (report < incident) {
-     toast.error("Reporting date must be on or after the Incident date.");
-     return false;
-   }
-   return true;
- };
- const handleSubmit = async (e) => {
-   e.preventDefault();
-   // Trigger Validation
-   if (!validateDates()) return;
-   setSubmitting(true);
-   const autoID = localStorage.getItem("customer_id") || "CUST_DEFAULT";
-   const payload = { ...form, customer_id: autoID };
-   try {
-     const res = await API.post("/predict", payload);
-     if (res.data.fraud_prediction === 0) {
-       toast.success("Initial Verification Passed");
-       navigate("/customer/predict-claim", {
-         state: { autoApproved: true, ...form }
-       });
-     } else {
-       setIsSuspicious(true);
-     }
-   } catch (err) {
-     toast.error("Verification system error.");
-   } finally {
-     setSubmitting(false);
-   }
- };
- const inputClass = "bg-slate-800/50 border border-slate-700 text-white p-3 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none text-sm";
- const labelClass = "text-xs font-medium text-slate-400 flex items-center gap-2";
- return (
-<div className="flex min-h-screen bg-slate-950 font-sans text-white">
-<CustSidebar />
-<div className="flex-1 flex flex-col overflow-hidden">
-<CustNavbar />
-<main className="p-6 md:p-8 overflow-y-auto flex-1 bg-slate-900">
-<div className="max-w-5xl mx-auto">
-           {isSuspicious ? (
-<div className="bg-slate-800/50 border border-slate-700 rounded-3xl p-12 text-center shadow-xl animate-in fade-in zoom-in duration-300">
-<div className="mx-auto w-20 h-20 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-6">
-<Clock3 size={40} className="text-amber-400" />
-</div>
-<h2 className="text-2xl font-bold">Verification Pending</h2>
-<p className="text-slate-400 mt-2 max-w-sm mx-auto text-sm">
-                 This claim requires manual review by our administration team. You will be notified once the review is complete.
-</p>
-<div className="mt-8 flex justify-center gap-4">
-<button onClick={() => setIsSuspicious(false)} className="text-sm text-slate-400 hover:text-white underline">Edit Form</button>
-<button onClick={() => navigate("/customer/dashboard")} className="bg-blue-600 px-6 py-2 rounded-lg text-sm font-bold">Back to Home</button>
-</div>
-</div>
-           ) : (
-<div className="bg-slate-800/50 border border-slate-700 rounded-3xl shadow-xl overflow-hidden">
-<div className="p-6 border-b border-slate-700 bg-slate-800/80 flex items-center gap-3">
-<FileText className="text-blue-400" />
-<h2 className="text-lg font-bold tracking-tight">Policy Claim Request</h2>
-</div>
-<form onSubmit={handleSubmit} className="p-8 space-y-8">
-<div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-<div className="flex flex-col gap-1.5 md:col-span-2">
-<label className={labelClass}><FileText size={14} className="text-blue-400"/>Policy ID</label>
-<input type="text" name="Policy_id" placeholder="Enter Policy ID" onChange={handleChange} value={form.Policy_id} className={inputClass} required />
-</div>
-<ModernDateInput name="policy_start_date" value={form.policy_start_date} onChange={handleChange} label="Policy Start Date" icon={CalendarDays} />
-<ModernDateInput name="incident_date" value={form.incident_date} onChange={handleChange} label="Incident Occurrence" icon={CalendarDays} />
-<ModernDateInput name="report_date" value={form.report_date} onChange={handleChange} label="Official Report Date" icon={CalendarDays} />
-</div>
-<div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-4">
-<div className="flex flex-col gap-1.5"><label className={labelClass}>Annual Premium</label>
-<input type="number" name="annual_premium" placeholder="0.00" required onChange={handleChange} value={form.annual_premium} className={inputClass} /></div>
-<div className="flex flex-col gap-1.5"><label className={labelClass}>Deductible</label>
-<input type="number" name="deductible" placeholder="0.00" required onChange={handleChange} value={form.deductible} className={inputClass} /></div>
-<div className="flex flex-col gap-1.5"><label className={labelClass}>Claim Amount</label>
-<input type="number" name="claim_amount" placeholder="0.00" required onChange={handleChange} value={form.claim_amount} className={inputClass} /></div>
-</div>
-<div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-<ModernSelect name="payment_method" onChange={handleChange} value={form.payment_method} label="Payment Method" icon={DollarSign}>
-<option value="">Select Method</option><option>Cash</option><option>Crypto</option><option>Bank Transfer</option>
-</ModernSelect>
-<ModernSelect name="channel" onChange={handleChange} value={form.channel} label="Submission Channel" icon={FileText}>
-<option value="">Select Channel</option><option>Agent</option><option>Online</option>
-</ModernSelect>
-<ModernSelect name="police_reported" onChange={handleChange} value={form.police_reported} label="Police Reported?" icon={AlertTriangle}>
-<option value="">Select Option</option><option>Yes</option><option>No</option>
-</ModernSelect>
-<ModernSelect name="injury_severity" onChange={handleChange} value={form.injury_severity} label="Injury Severity" icon={AlertTriangle}>
-<option value="">Select Severity</option><option>None</option><option>Normal</option><option>Critical</option><option>Major</option>
-</ModernSelect>
-<div className="flex flex-col gap-1.5 md:col-span-2"><label className={labelClass}><UserCog size={14} className="text-blue-400"/>Prior Claims</label>
-<input type="number" name="num_prior_claims" placeholder="0" required onChange={handleChange} value={form.num_prior_claims} className={inputClass} /></div>
-</div>
-<button type="submit" disabled={submitting} className="w-full bg-blue-600 hover:bg-blue-700 py-4 rounded-xl text-sm font-bold transition-all flex justify-center items-center gap-2 group">
-                   {submitting ? <Loader2 className="animate-spin" size={18} /> : <>Verify Claim <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></>}
-</button>
-</form>
-</div>
-           )}
-</div>
-</main>
-</div>
-</div>
- );
-}
-export default ClaimAmount;
+        return {"message": f"Claim {data.status} successfully"}
+
+    except Exception as e:
+        raise HTTPException(500, str(e))
