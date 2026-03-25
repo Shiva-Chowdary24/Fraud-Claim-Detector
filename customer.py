@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, Query
-from database import policy_requests, issued_policies, queries, notifications
+from fastapi import APIRouter, HTTPException, Query,Header,Body
+from database import policy_requests, issued_policies, queries, notifications,policies,claim_policies,fraud_logs
 from datetime import datetime
 from bson import ObjectId
 from uuid import uuid4
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -83,20 +84,36 @@ def get_notifications(recipient_id: str = Query(...)):
         raise HTTPException(status_code=500, detail="Error fetching notifications")
 
 # --- 4. HELP & QUERIES ---
-@router.post("/query")
-def ask_query(data: dict):
-    data["status"] = "Pending"
-    data["timestamp"] = now()
-    queries.insert_one(data)
-    return {"message": "Query sent"}
+# @router.post("/query")
+# def ask_query(data: dict):
+#    data["status"] = "Pending"
+#    data["timestamp"] = now()
+#    queries.insert_one(data)
+#    return {"message": "Query sent"}
 
 # --- 5. LEGACY ROUTES (Optional - for backward compatibility) ---
-@router.get("/issued-policies")
-def get_issued_policies(email: str):
-    results = list(issued_policies.find({"email": email}))
-    for r in results:
-        r["_id"] = str(r["_id"])
-    return results
+@router.get("/customer/issued-policies")
+def get_issued(customer_id: str, role: str = Header(None)):
+    # 1. Security Check
+    if role != "customer":
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    try:
+        # 2. Search by customer_id (ensure this matches your DB field name)
+        query={
+            "$or":[
+                {"customer_id":customer_id},
+                {"customer_id":int(customer_id) if customer_id.isdigit() else customer_id}
+            ]
+        }
+        results = list(issued_policies.find(query))
+        
+        for r in results:
+            r["_id"] = str(r["_id"])
+            
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Database fetch failed")
 @router.get("/customer/claim-history/{customer_id}")
 def get_claim_history(customer_id: str):
     try:
@@ -108,11 +125,121 @@ def get_claim_history(customer_id: str):
         }
         
         # .sort("updated_at", -1) ensures the newest decisions are at the top
-        results = list(db.fraud_logs.find(query).sort("updated_at", -1))
+        results = list(fraud_logs.find(query).sort("updated_at", -1))
         
         for r in results:
             r["_id"] = str(r["_id"]) # Convert MongoDB ID to string for React
             
         return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/customer/policy-details/{policy_id}")
+def get_policy(policy_id: str):
+    try:
+        print("Incoming policy_id:", policy_id)
+
+        policy = issued_policies.find_one({"policy_id": policy_id})
+        
+
+        if not policy:
+            raise HTTPException(status_code=404, detail="Policy not found")
+
+
+        return {
+        "policy_id":policy["policy_id"],
+        "plan_name": policy["plan_name"],
+        "premium": policy["premium_amount"],          # ✅ FIX
+        "sum_assured": policy["total_claim_amount"],  # ✅ FIX
+        "tenure": policy["tenure"],
+        "plan_type": policy["plan_type"],
+        "description": policy["description"],
+        "benefits": policy["benefits"]
+    }
+
+    except Exception as e:
+        print("ERROR:", str(e))  # 👈 THIS WILL SHOW REAL ISSUE
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/policy/{policy_id}")
+def get_policy(policy_id: str):
+    policy = find_one({"policy_id": policy_id}, {"_id": 0})
+
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    return policy
+
+from pydantic import BaseModel
+
+class ClaimPrediction(BaseModel):
+    policy_id: str
+    claimable_amount: float
+
+
+@router.post("/customer/amount-predict/store")
+def store_claim_prediction(data: ClaimPrediction):
+    try:
+        claim_policies.insert_one({
+            "policy_id": data.policy_id,
+            "claimable_amount": data.claimable_amount,
+            "status": "Active",
+            "predicted_at": datetime.utcnow().isoformat()
+        })
+
+        return {"message": "Claim prediction stored successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/customer/claim-policies/{customer_id}")
+def get_claim_policies(customer_id: str):
+    try:
+        results = list(
+            claim_policies.find(
+                {},
+                {"_id": 0}
+            ).sort("predicted_at", -1)
+        )
+        return results
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class FalseClaimRequest(BaseModel):
+    customer_id:str
+    policy_id:str
+    reason:str
+FalseClaimRequest.model_rebuild()
+@router.post("/customer/false-claim")
+def submit_false_claim(data: FalseClaimRequest=Body(...)):
+    try:
+        # ✅ 1. SAVE THE FALSE CLAIM (THIS WAS MISSING)
+        claim_data = {
+            "customer_id": str(data.customer_id),
+            "policy_id": data.policy_id,
+            "reason": data.reason,
+            "status": "Pending",
+            "verified":False,
+            "timestamp": datetime.utcnow()
+        }
+
+        fraud_logs.insert_one(claim_data)
+
+        # ✅ 2. NOTIFY ADMIN (CORRECT PLACE)
+        try:
+            notif=notifications.insert_one({
+                "recipient_id": "ADMIN",
+                "message": f" Review the Claim submitted by customer Id: {data.customer_id} of Policy Id: {data.policy_id}",
+                "link": "/admin/logs",
+                "type": "false_claim_request",
+                "timestamp": datetime.utcnow(),
+                "read": False
+            })
+        except Exception as e:
+                print("Notification failed:,str(e)")
+        return {"message": "False claim submitted successfully"}
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
