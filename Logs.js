@@ -45,24 +45,6 @@ function Logs() {
         Policy_id: log.Policy_id,
         status: status
       });
-
-      if (recipient) {
-        const notificationData = {
-          recipient_id: String(recipient),
-          message:
-            status === "Approved"
-              ? `Good news! Your claim for ${log.Policy_id} was APPROVED. Click to predict your payout.`
-              : `Notice: Your claim for ${log.Policy_id} is suspected as fraud. So, you cannot receive a claim. For more details, contact the administrator through Ask Question.`,
-          link:
-            status === "Approved"
-              ? "/customer/amount-predict"
-              : "/customer/dashboard",
-          status: status
-        };
-
-        await API.post("/notifications/add", notificationData);
-      }
-
       toast.success(`Policy ${log.Policy_id} marked as ${status}`);
       fetchLogs();
     } catch (err) {
