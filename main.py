@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from bson import ObjectId
 from database import notifications  # Ensure this is your PyMongo collection
-from routes import auth, admin, customer, predict, policy, payout
+from routes import auth, admin, customer, predict, policy, payout,query,dashboard,dealer,custdashboard
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
@@ -25,6 +25,10 @@ app.include_router(customer.router)
 app.include_router(predict.router)
 app.include_router(policy.router)
 app.include_router(payout.router)
+app.include_router(query.router)
+app.include_router(dashboard.router)
+app.include_router(dealer.router)
+app.include_router(custdashboard.router)
 
 class NotificationModel(BaseModel):
     recipient_id: str 
@@ -76,11 +80,16 @@ def clear_all_notifications(role: str, recipient_id: str):
 @app.get("/notifications/get/{recipient_id}")
 def get_notifications(recipient_id: str):
     try:
-        cursor = notifications.find({"recipient_id": recipient_id}).sort("_id", -1).limit(20)
-        results = []
-        for doc in list(cursor):
-            doc["_id"] = str(doc["_id"])
-            results.append(doc)
-        return results
+        notifs=list(
+            notifications.find({"recipient_id":recipient_id}).sort("timestamp",-1)
+        )
+        for n in notifs:
+            n["_id"]=str(n["_id"])
+        return notifs
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500,detail=str(e))
+
+@app.post("/notifications/mark-read/{notif_id}")
+def mark_as_read(notif_id:str):
+    notifications.update_one({"_id":ObjectId(notif_id)},{"$set":{"read":True}})
+    return {"status":"success"}
