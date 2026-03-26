@@ -1,7 +1,7 @@
 import os, hashlib, hmac, random
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from database import users
+from database import users,audit_logs
 from datetime import datetime
 
 router = APIRouter(tags=["Auth"])
@@ -61,3 +61,29 @@ def login(req: AuthRequest):
         "customer_id": user.get("customer_id"),
         "full_name": user.get("full_name") 
     }
+@router.post("/admin/login")
+def login(req: AuthRequest):
+    # 1. Find the user. Using 'role': 'admin' ensures customers can't use this route.
+    user = users.find_one({"email": req.email, "role": "admin"})
+
+    # 2. Verify password with the salt and hash from your manual script
+    if not user or not verify_password(req.password, user["salt"], user["password"]):
+        raise HTTPException(status_code=401, detail="Invalid admin credentials")
+
+    
+    audit_logs.insert_one({
+        "action": "LOGIN",
+        "details":"Admin logged in to the system",
+        "timestamp": datetime.utcnow()
+    })
+
+
+    # 3. Return the COMPLETE identity package
+    return {
+        "message": "Login success", 
+        "email": req.email, 
+        "admin_id": str(user.get("admin_id")), # Ensure ID is a string for JSON
+        "full_name": user.get("full_name"),
+        "role": "admin",  # 👈 CRITICAL: React needs this to authorize the dashboard
+        "token": "admin_session_token" # Optional: add if your frontend expects a token
+    }s
