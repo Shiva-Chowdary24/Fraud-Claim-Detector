@@ -150,7 +150,8 @@ def predict(data: PredictIn, request: Request) -> Dict[str, Any]:
                         "reasons": reasons_text,
                         "timestamp": now_utc_iso(),
                         "class": 1, # Used by Admin filter
-                        "status": "Pending" 
+                        "status": "Pending",
+                        "admin_reason": "" 
                     }
                 },
                 upsert=True,
