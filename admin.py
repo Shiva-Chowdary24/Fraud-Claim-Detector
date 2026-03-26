@@ -219,83 +219,100 @@ class StatusUpdate(BaseModel):
 
 
 @router.post("/admin/logs/update-status")
-
 def update_log_status(data: StatusUpdate, role: str = Header(None)):
+    # ✅ 1. Validate admin role
+    if not role:
+        raise HTTPException(status_code=401, detail="Role header missing")
 
     verify_admin(role)
 
+    # ✅ 2. Validate input
+    if not data.Policy_id:
+        raise HTTPException(status_code=400, detail="Policy_id is required")
+
+    if not data.status:
+        raise HTTPException(status_code=400, detail="status is required")
+
     try:
-
-        # 1. Get the log first to find the customer_id
-
-        log_entry = fraud_logs.find_one({"Policy_id": data.Policy_id})
+        # ✅ 3. Find the most recent matching log (important since no index)
+        log_entry = fraud_logs.find_one(
+            {
+                "$or": [
+                    {"policy_id": data.Policy_id},
+                    {"Policy_id": data.Policy_id}
+                ]
+            },
+            sort=[("created_at", -1)]  # ensures latest record
+        )
 
         if not log_entry:
-
-             log_entry = fraud_logs.find_one({"policy_id": data.Policy_id})
-
-        if not log_entry:
-
             raise HTTPException(status_code=404, detail="Claim log not found")
 
         cust_id = log_entry.get("customer_id")
+        if not cust_id:
+            raise HTTPException(
+                status_code=500,
+                detail="customer_id missing in claim log"
+            )
 
-        # 2. Update the status
-
-        fraud_logs.update_one(
-
+        # ✅ 4. Update the log safely
+        result = fraud_logs.update_one(
             {"_id": log_entry["_id"]},
-
             {
-
                 "$set": {
-
                     "status": data.status,
-
                     "verified": True,
-
                     "admin_reason": data.reason,
-
                     "updated_at": datetime.utcnow()
-
                 }
-
             }
-
         )
 
-        # ✅ 3. DYNAMIC REDIRECTION LOGIC
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Update failed")
 
-        # Determine link based on status (case-insensitive check)
+        # ✅ 5. Safe status handling
+        status = data.status.strip().lower()
 
-        target_link = "/customer/amount-predict" if data.status.lower() == "approved" else "/customer/ask-question"
-        msg=f"Your claim for Policy {data.Policy_id} has been {data.status}, Click here to get an Estimation of Claimable amount." if data.status.lower()=="approved" else f"Your claim for Policy {data.Policy_id} has been {data.status}, Contact Administrator."
-        # 4. NOTIFY CUSTOMER
-
-        notifications.insert_one({
-
-            "recipient_id": str(cust_id),
-
-            "message": msg,
-
-            "link": target_link, 
-
-            "type": "claim_update",
-
-            "timestamp": datetime.utcnow(),
-
-            "read": False
-
-        })
-        log_admin_action(
-            "admin@system.com", # The 'admin_email' argument
-            "Claim Status Updated", # The 'action' argument
-            f"Claim of Policy: {data.Policy_id} is {data.status}" # The 'details' argument
+        if status == "approved":
+            target_link = "/customer/amount-predict"
+            msg = (
+                f"Your claim for Policy {data.Policy_id} has been approved. "
+                "Click here to get an estimation of claimable amount."
             )
+        else:
+            target_link = "/customer/ask-question"
+            msg = (
+                f"Your claim for Policy {data.Policy_id} has been {data.status}. "
+                "Please contact the administrator."
+            )
+
+        # ✅ 6. Notify customer
+        notifications.insert_one({
+            "recipient_id": str(cust_id),
+            "message": msg,
+            "link": target_link,
+            "type": "claim_update",
+            "timestamp": datetime.utcnow(),
+            "read": False
+        })
+
+        # ✅ 7. Admin log must NEVER break API
+        try:
+            log_admin_action(
+                "admin@system.com",
+                "Claim Status Updated",
+                f"Claim of Policy: {data.Policy_id} is {data.status}"
+            )
+        except Exception as e:
+            print("Admin audit log failed:", e)
 
         return {"message": f"Claim {data.status} successfully"}
 
+    except HTTPException:
+        raise
     except Exception as e:
-
-        raise HTTPException(status_code=500, detail=str(e))
- 
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {e}"
+        )
