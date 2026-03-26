@@ -47,29 +47,102 @@ def submit_application(data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- 2. FULL HISTORY (Merged View for Customer History Page) ---
+# @router.get("/customer/full-history")
+# def get_full_history(customer_id: str = Query(...)):
+#     try:
+#         query = {"customer_id": str(customer_id)}
+        
+#         pending = list(policy_requests.find(query))
+#         active = list(issued_policies.find(query))
+        
+#         combined = []
+#         for item in pending:
+#             item["_id"] = str(item["_id"])
+#             combined.append(item)
+            
+#         for item in active:
+#             item["_id"] = str(item["_id"])
+#             item["status"] = "Active"
+#             combined.append(item)
+
+#         # Sort by most recent date
+#         combined.sort(key=lambda x: x.get("submitted_at") or x.get("issued_date") or "", reverse=True)
+#         return combined
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail="History fetch failed")
+from fastapi import Query, HTTPException
+from datetime import datetime
+
 @router.get("/customer/full-history")
 def get_full_history(customer_id: str = Query(...)):
     try:
-        query = {"customer_id": str(customer_id)}
-        
-        pending = list(policy_requests.find(query))
-        active = list(issued_policies.find(query))
-        
-        combined = []
-        for item in pending:
-            item["_id"] = str(item["_id"])
-            combined.append(item)
-            
-        for item in active:
-            item["_id"] = str(item["_id"])
-            item["status"] = "Active"
-            combined.append(item)
+        query = {"customer_id": customer_id}
 
-        # Sort by most recent date
-        combined.sort(key=lambda x: x.get("submitted_at") or x.get("issued_date") or "", reverse=True)
+        pending_requests = list(policy_requests.find(query))
+        issued = list(issued_policies.find(query))
+
+        combined = []
+
+        def normalize_date(value):
+            if not value:
+                return None
+            if isinstance(value, datetime):
+                return value.isoformat()
+            if isinstance(value, str):
+                try:
+                    # ✅ validate string date
+                    datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    return value
+                except Exception:
+                    return None
+            return None
+
+        # ✅ Pending requests
+        for item in pending_requests:
+            ts = normalize_date(item.get("submitted_at"))
+            if not ts:
+                continue  # ❌ skip invalid record
+
+            combined.append({
+                "_id": str(item["_id"]),
+                "policy_id": item.get("policy_id"),
+                "plan_name": item.get("plan_name"),
+                "status": "Pending",
+                "timestamp": ts
+            })
+
+        # ✅ Issued policies
+        for item in issued:
+            ts = normalize_date(item.get("approved_at"))
+            if not ts:
+                continue  # ❌ skip invalid record
+
+            combined.append({
+                "_id": str(item["_id"]),
+                "policy_id": item.get("policy_id"),
+                "plan_name": item.get("plan_name"),
+                "status": item.get("status", "Active"),
+                "timestamp": ts
+            })
+
+        # ✅ FINAL GUARANTEE: remove broken records
+        combined = [c for c in combined if c["timestamp"]]
+
+        combined.sort(key=lambda x: x["timestamp"], reverse=True)
+
+        # ✅ DEBUG (REMOVE AFTER CONFIRMATION)
+        print("✅ FINAL HISTORY PAYLOAD:")
+        for c in combined:
+            print(c["policy_id"], c["timestamp"])
+
         return combined
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail="History fetch failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"History fetch failed: {str(e)}"
+        )
+
 
 # --- 3. NOTIFICATIONS (For Customer Bell Icon) ---
 @router.get("/customer/notifications")
@@ -225,7 +298,11 @@ def submit_false_claim(data: FalseClaimRequest=Body(...)):
             "timestamp": datetime.utcnow()
         }
 
-        fraud_logs.insert_one(claim_data)
+        fraud_logs.update_one(
+            {"policy_id":data.policy_id},
+            {"$set":claim_data},
+            upsert=True
+        )
 
         # ✅ 2. NOTIFY ADMIN (CORRECT PLACE)
         try:
@@ -243,3 +320,5 @@ def submit_false_claim(data: FalseClaimRequest=Body(...)):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
