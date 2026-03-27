@@ -1,49 +1,1821 @@
-===== FINAL EVALUATION =====
+from fastapi import APIRouter, HTTPException, Header
+from database import policy_requests, issued_policies, notifications, audit_logs, queries, fraud_logs,policies
+from datetime import datetime,timezone
+from bson import ObjectId
+import random
+from pydantic import BaseModel
+from typing import Optional
 
-              precision    recall  f1-score   support
+router = APIRouter()
+
+# ✅ HELPER: Using utcnow() is good, but ensure datetime is imported
+def now():
+    return datetime.utcnow()
+
+# ✅ HELPER: Security Gatekeeper
+def verify_admin(role: str):
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Unauthorized: Admin access required.")
+
+def log_admin_action(admin_email: str, action: str, details: str):
+    audit_logs.insert_one({
+        "admin":admin_email,
+        "action":action,
+        "details":details,
+        "timestamp":datetime.utcnow(),
+    })
+# -------- POLICY APPROVALS --------
+
+@router.get("/admin/policy-requests")
+def get_requests(role: str = Header(None)):
+    verify_admin(role)
+    try:
+        results = list(policy_requests.find({"status": "Pending"}))
+        for r in results:
+            r["_id"] = str(r["_id"]) 
+        return results
+    except Exception as e:
+        raise HTTPException(500, f"Error: {str(e)}")
+
+
+@router.post("/admin/policy-approve/{request_id}")
+def approve(request_id: str, role: str = Header(None)):
+    verify_admin(role)
+
+    try:
+        req = policy_requests.find_one({"_id": ObjectId(request_id)})
+        if not req:
+            raise HTTPException(404, "Application not found")
+
+        policy_master = policies.find_one({
+            "plan_name": req.get("plan_name")
+        })
+
+        if not policy_master:
+            raise HTTPException(404, "Policy not found in master collection")
+
+        plan_name = req.get("plan_name", "POL")
+        prefix = plan_name[:3].upper()
+        generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
+
+        issued_data = {
+            "policy_id": generated_id,
+            "customer_id": req.get("customer_id"),
+            "plan_name": plan_name,
+            "email": req.get("email"),
+            "plan_type": policy_master.get("plan_type"),
+            "premium_amount": policy_master.get("premium_amount"),
+            "total_claim_amount": policy_master.get("total_claim_amount"),
+            "tenure": policy_master.get("tenure"),
+            "description": policy_master.get("description"),
+            "benefits": policy_master.get("benefits"),
+            "status": "Active",
+            "approved_at": now()
+        }
+
+        issued_policies.insert_one(issued_data)
+        policy_requests.delete_one({"_id": ObjectId(request_id)})
+        
+        notifications.insert_one({
+            "recipient_id": str(req.get("customer_id")),
+            "message": f" Policy '{plan_name}' has been Issued Successfully.",
+            "link": "/customer/issued-policies",
+            "type": "policy_approved",
+            "timestamp": now(),
+            "read": False
+        })
+
+        # ✅ AUDIT LOG (FIXED)
+        log_admin_action(
+            "admin1@gmail.com",
+            "POLICY_ISSUED",
+            f"Issued policy {plan_name} to customer {req.get('customer_id')}",
+            
+        )
+
+        return {
+            "message": "Approved",
+            "policy_id": generated_id
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/policy-decline/{request_id}")
+def decline_policy(request_id: str, role: str = Header(None)):
+    verify_admin(role)
+
+    try:
+        # ✅ Fetch request
+        req = policy_requests.find_one({"_id": ObjectId(request_id)})
+        if not req:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        customer_id = req.get("customer_id")
+
+        # ✅ Send notification to customer
+        notifications.insert_one({
+            "recipient_id": str(customer_id),
+            "message": (
+                "Your policy request was declined. "
+                "The policy was not issued. "
+                "Please contact the administrator through support."
+            ),
+            "link": "/customer/ask-question",
+            "type": "policy_declined",
+            "timestamp": now(),
+            "read": False
+        })
+
+        # ✅ Audit log
+        log_admin_action(
+            "admin1@gmail.com",
+            "POLICY_ISSUED",
+            f"Issued policy {plan_name} to customer {req.get('customer_id')}",
+            
+        )
+
+        # ✅ Delete the request record
+        policy_requests.delete_one({"_id": ObjectId(request_id)})
+
+        return {
+            "message": "Policy request declined and customer notified"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/admin/audit-logs")
+def get_audit_logs(role: str = Header(None)):
+    verify_admin(role)
+    return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
+
+# ✅ FIXED: Renamed this function to 'get_fraud_logs' to avoid duplicate name 'audit'
+@router.get("/admin/logs")
+
+def get_fraud_logs(role: str = Header(None)):
+
+    verify_admin(role)
+
+    logs = list(fraud_logs.find({}))
+
+    for log in logs:
+
+        log["_id"] = str(log["_id"])
+
+        log["Policy_id"] = log.get("Policy_id") or log.get("policy_id")
+
+    def sort_key(x):
+
+        verified = x.get("verified", False)
+
+        ts = x.get("timestamp")
+
+        dt = None
+
+        if isinstance(ts, datetime):
+
+            dt = ts
+
+        elif isinstance(ts, str):
+
+            try:
+
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+            except:
+
+                dt = datetime.min
+
+        else:
+
+            dt = datetime.min
+
+        # 🔥 THE FIX: If dt has a timezone (aware), convert to UTC and remove it (naive)
+
+        if dt.tzinfo is not None:
+
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+        return (verified, dt)
+
+    return sorted(logs, key=sort_key, reverse=True)
  
-           0     0.9774    0.6779    0.8005    192435
 
-           1     0.0683    0.6007    0.1226      7565
+@router.get("/admin/notifications")
+def get_admin_notifications(role: str = Header(None)):
+    verify_admin(role)
+    notifs = list(notifications.find({"recipient_id": "ADMIN"}).sort("timestamp", -1))
+    for n in notifs:
+        n["_id"] = str(n["_id"])
+    return notifs
+
+# -------- LOG STATUS UPDATES --------
+class StatusUpdate(BaseModel):
+    Policy_id: str
+    status: str
+    reason: Optional[str] = ""
+
+
+@router.post("/admin/logs/update-status")
+def update_log_status(data: StatusUpdate, role: str = Header(None)):
+    # ✅ 1. Validate admin role
+    if not role:
+        raise HTTPException(status_code=401, detail="Role header missing")
+
+    verify_admin(role)
+
+    # ✅ 2. Validate input
+    if not data.Policy_id:
+        raise HTTPException(status_code=400, detail="Policy_id is required")
+
+    if not data.status:
+        raise HTTPException(status_code=400, detail="status is required")
+
+    try:
+        # ✅ 3. Find the most recent matching log (important since no index)
+        log_entry = fraud_logs.find_one(
+            {
+                "$or": [
+                    {"policy_id": data.Policy_id},
+                    {"Policy_id": data.Policy_id}
+                ]
+            },
+            sort=[("created_at", -1)]  # ensures latest record
+        )
+
+        if not log_entry:
+            raise HTTPException(status_code=404, detail="Claim log not found")
+
+        cust_id = log_entry.get("customer_id")
+        if not cust_id:
+            raise HTTPException(
+                status_code=500,
+                detail="customer_id missing in claim log"
+            )
+
+        # ✅ 4. Update the log safely
+        result = fraud_logs.update_one(
+            {"_id": log_entry["_id"]},
+            {
+                "$set": {
+                    "status": data.status,
+                    "verified": True,
+                    "admin_reason": data.reason,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Update failed")
+
+        # ✅ 5. Safe status handling
+        status = data.status.strip().lower()
+
+        if status == "approved":
+            target_link = "/customer/amount-predict"
+            msg = (
+                f"Your claim for Policy {data.Policy_id} has been approved. "
+                "Click here to get an estimation of claimable amount."
+            )
+        else:
+            target_link = "/customer/ask-question"
+            msg = (
+                f"Your claim for Policy {data.Policy_id} has been {data.status}. "
+                "Please contact the administrator."
+            )
+
+        # ✅ 6. Notify customer
+        notifications.insert_one({
+            "recipient_id": str(cust_id),
+            "message": msg,
+            "link": target_link,
+            "type": "claim_update",
+            "timestamp": datetime.utcnow(),
+            "read": False
+        })
+
+        # ✅ 7. Admin log must NEVER break API
+        try:
+            log_admin_action(
+                "admin@system.com",
+                "Claim Status Updated",
+                f"Claim of Policy: {data.Policy_id} is {data.status}"
+            )
+        except Exception as e:
+            print("Admin audit log failed:", e)
+
+        return {"message": f"Claim {data.status} successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {e}"
+        )
+
+import os, hashlib, hmac, random
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from database import users,audit_logs
+from datetime import datetime
+
+router = APIRouter(tags=["Auth"])
+
+# Updated Model to include full_name
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str = None  # Optional for login, required for signup
+
+def hash_password(password):
+    salt = os.urandom(16)
+    hashed = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
+    return salt.hex(), hashed.hex()
+
+def verify_password(password, salt, stored):
+    salt = bytes.fromhex(salt)
+    new_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
+    return hmac.compare_digest(new_hash.hex(), stored)
+
+@router.post("/customer/register")
+def register(req: AuthRequest):
+    if users.find_one({"email": req.email}):
+        raise HTTPException(400, "User already exists")
+
+    # Generate unique 6-digit Customer ID
+    while True:
+        cust_id = str(random.randint(100000, 999999))
+        if not users.find_one({"customer_id": cust_id}):
+            break
+
+    salt, hashed = hash_password(req.password)
+
+    users.insert_one({
+        "customer_id": cust_id,
+        "full_name": req.full_name, # Storing the name
+        "email": req.email,
+        "password": hashed,
+        "salt": salt,
+        "role": "customer",
+        "created_at": datetime.utcnow().isoformat()
+    })
+
+    return {"message": "Registered", "customer_id": cust_id, "full_name": req.full_name}
+
+@router.post("/customer/login")
+def login(req: AuthRequest):
+    user = users.find_one({"email": req.email, "role": "customer"})
+
+    if not user or not verify_password(req.password, user["salt"], user["password"]):
+        raise HTTPException(401, "Invalid credentials")
+
+    # Returning both the ID and the Full Name
+    return {
+        "message": "Login success", 
+        "email": req.email, 
+        "customer_id": user.get("customer_id"),
+        "full_name": user.get("full_name") 
+    }
+@router.post("/admin/login")
+def login(req: AuthRequest):
+    # 1. Find the user. Using 'role': 'admin' ensures customers can't use this route.
+    user = users.find_one({"email": req.email, "role": "admin"})
+
+    # 2. Verify password with the salt and hash from your manual script
+    if not user or not verify_password(req.password, user["salt"], user["password"]):
+        raise HTTPException(status_code=401, detail="Invalid admin credentials")
+
+    
+    audit_logs.insert_one({
+        "action": "LOGIN",
+        "details":"Admin logged in to the system",
+        "timestamp": datetime.utcnow()
+    })
+
+
+    # 3. Return the COMPLETE identity package
+    return {
+        "message": "Login success", 
+        "email": req.email, 
+        "admin_id": str(user.get("admin_id")), # Ensure ID is a string for JSON
+        "full_name": user.get("full_name"),
+        "role": "admin",  # 👈 CRITICAL: React needs this to authorize the dashboard
+        "token": "admin_session_token" # Optional: add if your frontend expects a token
+    }
+
+from fastapi import APIRouter, HTTPException
+from datetime import datetime
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any
+
+# ✅ Mongo collections
+from database import claim_payouts, issued_policies, fraud_logs
+
+router = APIRouter(tags=["Claim Payouts"])
+
+# -------------------------------------------------
+# Helpers
+# -------------------------------------------------
+def now():
+    return datetime.utcnow().isoformat()
+
+# -------------------------------------------------
+# Models
+# -------------------------------------------------
+class SavePayoutRequest(BaseModel):
+    """
+    ✅ Sent ONLY from party blast
+    customer_id is NOT accepted from frontend anymore
+    """
+    policy_id: str = Field(..., min_length=1)
+    predicted_payable_amount: float = Field(..., ge=0)
+
+class SavePayoutResponse(BaseModel):
+    message: str
+    id: str
+
+# -------------------------------------------------
+# 1️⃣ SAVE PAYOUT (DERIVE CUSTOMER FROM POLICY)
+# -------------------------------------------------
+@router.post("/customer/payouts", response_model=SavePayoutResponse)
+def save_claim_payout(data: SavePayoutRequest):
+    try:
+        policy_id = data.policy_id.strip()
+        if not policy_id:
+            raise HTTPException(status_code=400, detail="policy_id is required")
+
+        # ✅ SOURCE OF TRUTH: issued_policies
+        policy = issued_policies.find_one({"policy_id": policy_id})
+        if not policy:
+            raise HTTPException(status_code=404, detail="Issued policy not found")
+
+        customer_id = policy.get("customer_id")
+        if not customer_id:
+            raise HTTPException(status_code=500, detail="customer_id missing in issued_policies")
+
+        policy_name = policy.get("policy_name", "Unknown Policy")
+
+        # Normalize policy status
+        status_raw = policy.get("status")
+        if isinstance(status_raw, bool):
+            policy_status = "Active" if status_raw else "Inactive"
+        elif isinstance(status_raw, str):
+            policy_status = status_raw
+        else:
+            policy_status = "Unknown"
+
+        payout_doc = {
+            "customer_id": customer_id,
+            "policy_id": policy_id,
+            "policy_name": policy_name,
+            "predicted_payable_amount": float(data.predicted_payable_amount),
+            "policy_status": policy_status,
+            "status": "Approved",
+            "created_at": now(),
+            "updated_at": now()
+        }
+
+        # ✅ UPSERT (1 payout per policy)
+        existing = claim_payouts.find_one({"policy_id": policy_id})
+
+        if existing:
+            claim_payouts.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {
+                    "predicted_payable_amount": payout_doc["predicted_payable_amount"],
+                    "policy_status": payout_doc["policy_status"],
+                    "policy_name": payout_doc["policy_name"],
+                    "status": "Approved",
+                    "updated_at": now()
+                }}
+            )
+            return {"message": "Payout updated", "id": str(existing["_id"])}
+
+        result = claim_payouts.insert_one(payout_doc)
+        return {"message": "Payout saved", "id": str(result.inserted_id)}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("ERROR in save_claim_payout:", str(e))
+        raise HTTPException(status_code=500, detail="Failed to save payout")
+
+# -------------------------------------------------
+# 2️⃣ FETCH CLAIM HISTORY (Customer View)
+# -------------------------------------------------
+@router.get("/customer/claim-history/{customer_id}")
+def get_claim_history(customer_id: str):
+    try:
+        cid = (customer_id or "").strip()
+        if not cid:
+            raise HTTPException(status_code=400, detail="customer_id is required")
+
+        approved_docs = list(
+            claim_payouts.find({"customer_id": cid}).sort("updated_at", -1)
+        )
+
+        declined_docs = list(
+            fraud_logs.find({"customer_id": cid, "status": "Declined"}).sort("created_at", -1)
+        )
+
+        out: List[Dict[str, Any]] = []
+
+        # ✅ Approved payouts
+        for d in approved_docs:
+            out.append({
+                "Policy_id": d.get("policy_id"),
+                "policy_name": d.get("policy_name"),
+                "predicted_payable_amount": d.get("predicted_payable_amount"),
+                "policy_status": d.get("policy_status"),
+                "status": "Approved",
+                "reason": None
+            })
+
+        # ✅ Declined claims
+        for d in declined_docs:
+            pid = d.get("Policy_id") or d.get("policy_id")
+            policy = issued_policies.find_one({"policy_id": pid}) or {}
+
+            status_raw = policy.get("status")
+            if isinstance(status_raw, bool):
+                policy_status = "Active" if status_raw else "Inactive"
+            elif isinstance(status_raw, str):
+                policy_status = status_raw
+            else:
+                policy_status = "Unknown"
+
+            out.append({
+                "Policy_id": pid,
+                "policy_name": d.get("policy_name") or policy.get("policy_name") or "Unknown Policy",
+                "predicted_payable_amount": None,
+                "policy_status": policy_status,
+                "status": "Declined",
+                "reason": d.get("reason") or d.get("rejection_reason") or "Declined by screening"
+            })
+
+        return out
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("ERROR in /customer/claim-history:", str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch claim history")
+
+from fastapi import APIRouter, HTTPException, Query
+from pymongo import MongoClient
+from database import policies,issued_policies,claim_policies
+router = APIRouter()
+
+@router.get("/customer/dashboard-stats")
+def get_customer_dashboard_stats(customer_id: str = Query(...)):
+    try:
+        customer_id = customer_id.strip()
+
+        # 1️⃣ Get all issued policy IDs for the customer
+        issued_policy_ids = issued_policies.distinct(
+            "policy_id",
+            {"customer_id": customer_id}
+        )
+
+        # Applied = number of issued policies
+        applied_policies_count = len(issued_policy_ids)
+
+        # 2️⃣ Count claimed policies where policy_id matches issued ones
+        claimed_policies_count = 0
+        if issued_policy_ids:
+            claimed_policies_count = claim_policies.count_documents({
+                "policy_id": {"$in": issued_policy_ids}
+            })
+
+        # 3️⃣ Available policies (global)
+        available_policies_count = policies.count_documents({})
+
+        return {
+            "available_policies": available_policies_count,
+            "applied_policies": applied_policies_count,
+            "claimed_policies": claimed_policies_count
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Dashboard stats fetch failed: {str(e)}"
+        )
+
+from fastapi import APIRouter, HTTPException, Query,Header,Body
+from database import policy_requests, issued_policies, queries, notifications,policies,claim_policies,fraud_logs
+from datetime import datetime
+from bson import ObjectId
+from uuid import uuid4
+from pydantic import BaseModel
+
+router = APIRouter()
+
+def now():
+    return datetime.utcnow().isoformat()
+
+# --- 1. SUBMIT APPLICATION (Triggers Admin Notification) ---
+@router.post("/customer/submit-application")
+def submit_application(data: dict):
+    try:
+        # Check if IDs were sent automatically from Frontend
+        if not data.get("customer_id") or not data.get("full_name"):
+            raise HTTPException(status_code=400, detail="Session Error: Missing Customer Identity.")
+
+        # Add Metadata
+        data["request_id"] = f"REQ-{str(uuid4())[:6].upper()}"
+        data["status"] = "Pending"
+        data["submitted_at"] = now()
+        
+        # Ensure ID is stored as string for consistent searching
+        data["customer_id"] = str(data["customer_id"])
+
+        # Insert the application
+        policy_requests.insert_one(data)
+
+        # ✅ NOTIFY ADMIN (For the Bell Icon Action)
+        notifications.insert_one({
+            "recipient_id": "ADMIN", 
+            "message": f"New Policy Request from {data.get('full_name')} (ID: {data.get('customer_id')})",
+            "type": "new_request",
+            "link": "/admin/policy-requests", # Redirects admin to approval page
+            "read": False,
+            "timestamp": now()
+        })
+        
+        return {
+            "message": "Application submitted successfully", 
+            "request_id": data["request_id"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- 2. FULL HISTORY (Merged View for Customer History Page) ---
+# @router.get("/customer/full-history")
+# def get_full_history(customer_id: str = Query(...)):
+#     try:
+#         query = {"customer_id": str(customer_id)}
+        
+#         pending = list(policy_requests.find(query))
+#         active = list(issued_policies.find(query))
+        
+#         combined = []
+#         for item in pending:
+#             item["_id"] = str(item["_id"])
+#             combined.append(item)
+            
+#         for item in active:
+#             item["_id"] = str(item["_id"])
+#             item["status"] = "Active"
+#             combined.append(item)
+
+#         # Sort by most recent date
+#         combined.sort(key=lambda x: x.get("submitted_at") or x.get("issued_date") or "", reverse=True)
+#         return combined
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail="History fetch failed")
+from fastapi import Query, HTTPException
+from datetime import datetime
+
+@router.get("/customer/full-history")
+def get_full_history(customer_id: str = Query(...)):
+    try:
+        query = {"customer_id": customer_id}
+
+        pending_requests = list(policy_requests.find(query))
+        issued = list(issued_policies.find(query))
+
+        combined = []
+
+        def normalize_date(value):
+            if not value:
+                return None
+            if isinstance(value, datetime):
+                return value.isoformat()
+            if isinstance(value, str):
+                try:
+                    # ✅ validate string date
+                    datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    return value
+                except Exception:
+                    return None
+            return None
+
+        # ✅ Pending requests
+        for item in pending_requests:
+            ts = normalize_date(item.get("submitted_at"))
+            if not ts:
+                continue  # ❌ skip invalid record
+
+            combined.append({
+                "_id": str(item["_id"]),
+                "policy_id": item.get("policy_id"),
+                "plan_name": item.get("plan_name"),
+                "status": "Pending",
+                "timestamp": ts
+            })
+
+        # ✅ Issued policies
+        for item in issued:
+            ts = normalize_date(item.get("approved_at"))
+            if not ts:
+                continue  # ❌ skip invalid record
+
+            combined.append({
+                "_id": str(item["_id"]),
+                "policy_id": item.get("policy_id"),
+                "plan_name": item.get("plan_name"),
+                "status": item.get("status", "Active"),
+                "timestamp": ts
+            })
+
+        # ✅ FINAL GUARANTEE: remove broken records
+        combined = [c for c in combined if c["timestamp"]]
+
+        combined.sort(key=lambda x: x["timestamp"], reverse=True)
+
+        # ✅ DEBUG (REMOVE AFTER CONFIRMATION)
+        print("✅ FINAL HISTORY PAYLOAD:")
+        for c in combined:
+            print(c["policy_id"], c["timestamp"])
+
+        return combined
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"History fetch failed: {str(e)}"
+        )
+
+
+# --- 3. NOTIFICATIONS (For Customer Bell Icon) ---
+@router.get("/customer/notifications")
+def get_notifications(recipient_id: str = Query(...)):
+    try:
+        # Search by recipient_id to match the 6-digit Customer ID
+        result = list(notifications.find({"recipient_id": str(recipient_id)}).sort("timestamp", -1))
+        for r in result:
+            r["_id"] = str(r["_id"])
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error fetching notifications")
+
+# --- 4. HELP & QUERIES ---
+# @router.post("/query")
+# def ask_query(data: dict):
+#    data["status"] = "Pending"
+#    data["timestamp"] = now()
+#    queries.insert_one(data)
+#    return {"message": "Query sent"}
+
+# --- 5. LEGACY ROUTES (Optional - for backward compatibility) ---
+@router.get("/customer/issued-policies")
+def get_issued(customer_id: str, role: str = Header(None)):
+    # 1. Security Check
+    if role != "customer":
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    try:
+        # 2. Search by customer_id (ensure this matches your DB field name)
+        query={
+            "$or":[
+                {"customer_id":customer_id},
+                {"customer_id":int(customer_id) if customer_id.isdigit() else customer_id}
+            ]
+        }
+        results = list(issued_policies.find(query))
+        
+        for r in results:
+            r["_id"] = str(r["_id"])
+            
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Database fetch failed")
+@router.get("/customer/claim-history/{customer_id}")
+def get_claim_history(customer_id: str):
+    try:
+        # We fetch only processed claims (Approved/Declined) 
+        # for the specific logged-in customer
+        query = {
+            "customer_id": str(customer_id),
+            "status": {"$in": ["Approved", "Declined"]}
+        }
+        
+        # .sort("updated_at", -1) ensures the newest decisions are at the top
+        results = list(fraud_logs.find(query).sort("updated_at", -1))
+        
+        for r in results:
+            r["_id"] = str(r["_id"]) # Convert MongoDB ID to string for React
+            
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/customer/policy-details/{policy_id}")
+def get_policy(policy_id: str):
+    try:
+        print("Incoming policy_id:", policy_id)
+
+        policy = issued_policies.find_one({"policy_id": policy_id})
+        
+
+        if not policy:
+            raise HTTPException(status_code=404, detail="Policy not found")
+
+
+        return {
+        "policy_id":policy["policy_id"],
+        "plan_name": policy["plan_name"],
+        "premium": policy["premium_amount"],          # ✅ FIX
+        "sum_assured": policy["total_claim_amount"],  # ✅ FIX
+        "tenure": policy["tenure"],
+        "plan_type": policy["plan_type"],
+        "description": policy["description"],
+        "benefits": policy["benefits"]
+    }
+
+    except Exception as e:
+        print("ERROR:", str(e))  # 👈 THIS WILL SHOW REAL ISSUE
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/policy/{policy_id}")
+def get_policy(policy_id: str):
+    policy = find_one({"policy_id": policy_id}, {"_id": 0})
+
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    return policy
+
+from pydantic import BaseModel
+
+class ClaimPrediction(BaseModel):
+    policy_id: str
+    claimable_amount: float
+
+
+@router.post("/customer/amount-predict/store")
+def store_claim_prediction(data: ClaimPrediction):
+    try:
+        claim_policies.insert_one({
+            "policy_id": data.policy_id,
+            "claimable_amount": data.claimable_amount,
+            "status": "Active",
+            "predicted_at": datetime.utcnow().isoformat()
+        })
+
+        return {"message": "Claim prediction stored successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/customer/claim-policies/{customer_id}")
+def get_claim_policies(customer_id: str):
+    try:
+        results = list(
+            claim_policies.find(
+                {},
+                {"_id": 0}
+            ).sort("predicted_at", -1)
+        )
+        return results
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class FalseClaimRequest(BaseModel):
+    customer_id:str
+    policy_id:str
+    reason:str
+FalseClaimRequest.model_rebuild()
+@router.post("/customer/false-claim")
+def submit_false_claim(data: FalseClaimRequest=Body(...)):
+    try:
+        # ✅ 1. SAVE THE FALSE CLAIM (THIS WAS MISSING)
+        claim_data = {
+            "customer_id": str(data.customer_id),
+            "policy_id": data.policy_id,
+            "reason": data.reason,
+            "status": "Pending",
+            "verified":False,
+            "timestamp": datetime.utcnow()
+        }
+
+        fraud_logs.update_one(
+            {"policy_id":data.policy_id},
+            {"$set":claim_data},
+            upsert=True
+        )
+
+        # ✅ 2. NOTIFY ADMIN (CORRECT PLACE)
+        try:
+            notif=notifications.insert_one({
+                "recipient_id": "ADMIN",
+                "message": f" Review the Claim submitted by customer Id: {data.customer_id} of Policy Id: {data.policy_id}",
+                "link": "/admin/logs",
+                "type": "false_claim_request",
+                "timestamp": datetime.utcnow(),
+                "read": False
+            })
+        except Exception as e:
+                print("Notification failed:,str(e)")
+        return {"message": "False claim submitted successfully"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+from fastapi import APIRouter, HTTPException, Header
+
+from database import issued_policies, fraud_logs, users, policies
+
+from typing import Optional
+
+router = APIRouter(tags=["Admin Dashboard"])
+
+def verify_admin(role: Optional[str]):
+
+    if role != "admin":
+
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+@router.get("/admin/dashboard")
+
+def get_dashboard_stats(role: Optional[str] = Header(None)):
+
+    verify_admin(role)
+
+    try:
+
+        # Fetch real-time counts from MongoDB collections
+
+        total_claims = issued_policies.count_documents({})
+
+        frauds_detected = fraud_logs.count_documents({})
+
+        total_customers = users.count_documents({"role": "customer"}) # Assuming you have roles
+
+        available_policies = policies.count_documents({})
+
+        return {
+
+            "totalClaims": total_claims,
+
+            "fraudsDetected": frauds_detected,
+
+            "totalCustomers": total_customers,
+
+            "availablePolicies": available_policies
+
+        }
+
+    except Exception as e:
+
+        print(f"Dashboard Error: {e}")
+
+        raise HTTPException(status_code=500, detail="Failed to fetch dashboard statistics")
  
-    accuracy                         0.6749    200000
+from fastapi import APIRouter, HTTPException, Body, Query
+from bson import ObjectId
+from typing import Dict, Any
+# Import your 'dealers' collection from your database config file
+from database import dealers
+# We define the router here
+router = APIRouter()
+def dealer_helper(dealer) -> dict:
+   return {
+       "id": str(dealer["_id"]),
+       "Policy": dealer.get("Policy"),
+       "Policy Status": dealer.get("Policy Status"),
+       "Broker Dealer": dealer.get("Broker Dealer"),
+       "Issue date": dealer.get("Issue date"),
+       "Contribution": dealer.get("Contribution"),
+   }
+# --- 1. SEARCH (Used by Frontend handleSearch) ---
+# Endpoint: GET /dealers/search?policy=...
+@router.get("/dealers/search", response_model=dict)
+def search_by_policy(policy: str = Query(...)):
+   dealer = dealers.find_one({"Policy": policy})
+   if dealer:
+       return dealer_helper(dealer)
+   raise HTTPException(status_code=404, detail="Policy not found")
+# --- 2. UPDATE (Used by Frontend handleUpdate) ---
+# Endpoint: PUT /dealers/{id}
+@router.put("/dealers/{id}")
+def update_dealer(id: str, data: dict = Body(...)):
+   if not ObjectId.is_valid(id):
+       raise HTTPException(status_code=400, detail="Invalid ID")
+   # We use $set so we don't overwrite the whole document
+   result = dealers.update_one({"_id": ObjectId(id)}, {"$set": data})
+   if result.matched_count == 0:
+       raise HTTPException(status_code=404, detail="Dealer not found")
+   return {"message": "Update successful"}
 
-   macro avg     0.5228    0.6393    0.4616    200000
+@router.delete("/admin/dealer/delete/{policy_id}")
+def delete_dealer(policy_id: str):
+    res = dealers.delete_one({"Policy": policy_id})
 
-weighted avg     0.9430    0.6749    0.7749    200000
+    if res.deleted_count == 1:
+        return {"message": "Dealer deleted successfully"}
+
+    raise HTTPException(status_code=404, detail="Dealer not found")
+
+from fastapi import APIRouter
+import pandas as pd
+from datetime import datetime
+import joblib
+from pymongo import MongoClient
  
-ROC-AUC: 0.6937
-
-PR-AUC: 0.0867
-
-Confusion Matrix:
-
-[[130445  61990]
-
-[  3021   4544]]
-
-Operating threshold: 0.5223
-
-Workload: 33.27%
-
-Fraud capture: 60.07%
+router = APIRouter(tags=["Health Claim Prediction"])
  
-fraud prediction metrics
+# ------------------------------------------------------------
+# Load models
+# ------------------------------------------------------------
+approval_model = joblib.load("artifacts/approval_calibrated.pkl")
+amount_model = joblib.load("artifacts/amount_model.pkl")
  
-claim amount approval and predict model:
+# ------------------------------------------------------------
+# MongoDB (only rejected cases)
+# ------------------------------------------------------------
+client = MongoClient("mongodb://localhost:27017")
+db = client["Insurancedb"]
+rejected_claims = db["Failed_Claims"]
  
-{
-  "mae": 3572.4058252131,
-  "rmse": 5350.865502048659,
-  "mean_predicted_amount": 8842.604239342916,
-  "p90_predicted_amount": 14236.69368879772
-}
-amount_metrics:
-{
-  "roc_auc": 0.7103583959547837,
-  "brier_score": 0.09413223127796451,
-  "approval_rate": 1.0,
-  "threshold": 0.5
-}
-approval metrics:
+# ------------------------------------------------------------
+# Utility: align dataframe to model schema
+# ------------------------------------------------------------
+def align_df(df: pd.DataFrame, pipeline):
+    """
+    Align dataframe with the model's preprocessing pipeline.
+    - Numeric columns -> 0
+    - Categorical columns -> 'Unknown'
+    """
+    prep = pipeline.named_steps["prep"]
+ 
+    numeric_cols = []
+    categorical_cols = []
+ 
+    for name, transformer, cols in prep.transformers_:
+        if transformer == "drop":
+            continue
+        if name.lower().startswith("num"):
+            numeric_cols.extend(cols)
+        elif name.lower().startswith("cat"):
+            categorical_cols.extend(cols)
+ 
+    # Fill numeric
+    for col in numeric_cols:
+        if col not in df.columns:
+            df[col] = 0
+ 
+    # Fill categorical
+    for col in categorical_cols:
+        if col not in df.columns:
+            df[col] = "Unknown"
+        df[col] = df[col].astype(str)
+ 
+    return df[numeric_cols + categorical_cols]
+ 
+ 
+# ------------------------------------------------------------
+# Rule-based rejection
+# ------------------------------------------------------------
+def hard_reject_rules(data: dict):
+    reasons = []
+ 
+    if float(data.get("policy_tenure_years", 0)) < 0.5:
+        reasons.append("Policy tenure too short")
+ 
+    if int(data.get("prior_claims_count", 0)) >= 3:
+        reasons.append("Too many prior claims")
+ 
+    if data.get("incident_severity") == "High" and data.get("region_risk_level") == "High":
+        reasons.append("High severity claim in high risk region")
+ 
+    if int(data.get("health_risk_score", 0)) >= 8:
+        reasons.append("Very high health risk score")
+ 
+    if int(data.get("smoker", 0)) == 1 and int(data.get("diabetes", 0)) == 1:
+        reasons.append("Smoker with chronic illness")
+ 
+    return reasons
+ 
+ 
+# ------------------------------------------------------------
+# Predict Endpoint
+# ------------------------------------------------------------
+@router.post("/predict-health")
+def predict_claim(data: dict):
+ 
+    policy_id = data.get("policy_id")
+ 
+    # --------------------------------------------------------
+    # Normalize financial inputs
+    # --------------------------------------------------------
+    sum_assured = float(data.get("sum_assured") or 0)
+    premium_amount = float(
+        data.get("premium_amount") or data.get("annual_premium") or 0
+    )
+ 
+    if sum_assured <= 0 or premium_amount <= 0:
+        result = {
+            "policy_id": policy_id,
+            "approved": "No",
+            "approval_probability": 0.0,
+            "claimable_amount": 0.0,
+            "rejection_reasons": ["Invalid financial policy data"]
+        }
+        rejected_claims.insert_one({
+            "policy_id": policy_id,
+            "input": data,
+            "prediction": result,
+            "rejected_by": "DATA",
+            "timestamp": datetime.utcnow()
+        })
+        return result
+ 
+    # --------------------------------------------------------
+    # 1️⃣ Rule-based rejection
+    # --------------------------------------------------------
+    rejection_reasons = hard_reject_rules(data)
+    if rejection_reasons:
+        result = {
+            "policy_id": policy_id,
+            "approved": "No",
+            "approval_probability": 0.0,
+            "claimable_amount": 0.0,
+            "rejection_reasons": rejection_reasons
+        }
+        rejected_claims.insert_one({
+            "policy_id": policy_id,
+            "input": data,
+            "prediction": result,
+            "rejected_by": "RULES",
+            "timestamp": datetime.utcnow()
+        })
+        return result
+ 
+    # --------------------------------------------------------
+    # 2️⃣ Approval model
+    # --------------------------------------------------------
+    approval_input = {
+        # numeric
+        "age": int(data.get("age", 0)),
+        "weight": int(data.get("weight", 0)),
+        "policy_tenure_years": float(data.get("policy_tenure_years", 0)),
+        "prior_claims_count": int(data.get("prior_claims_count", 0)),
+        "bmi": float(data.get("bmi", 0)),
+        "bloodpressure": int(data.get("bloodpressure", 0)),
+        "health_risk_score": int(data.get("health_risk_score", 0)),
+        "sum_assured": sum_assured,
+        "premium_amount": premium_amount,
+ 
+        # categorical
+        "incident_severity": data.get("incident_severity", "Low"),
+        "region_risk_level": data.get("region_risk_level", "Low"),
+        "policy_coverage_details": data.get("policy_coverage_details", "Individual"),
+        "payment_frequency": data.get("payment_frequency", "Annual"),
+        "gender": data.get("gender", "Male"),
+        "hereditary_diseases": data.get("hereditary_diseases", "None"),
+ 
+        # numeric flags (IMPORTANT)
+        "diabetes": int(data.get("diabetes", 0)),
+        "smoker": int(data.get("smoker", 0)),
+        "regular_ex": int(data.get("regular_ex", 0)),
+    }
+ 
+    approval_df = pd.DataFrame([approval_input])
+    approval_df = align_df(approval_df, approval_model.estimator)
+ 
+    approval_prob = float(approval_model.predict_proba(approval_df)[0, 1])
+ 
+    if approval_prob < 0.5:
+        result = {
+            "policy_id": policy_id,
+            "approved": "No",
+            "approval_probability": round(approval_prob, 4),
+            "claimable_amount": 0.0,
+            "rejection_reasons": ["Low ML approval probability"]
+        }
+        rejected_claims.insert_one({
+            "policy_id": policy_id,
+            "input": data,
+            "prediction": result,
+            "rejected_by": "ML",
+            "timestamp": datetime.utcnow()
+        })
+        return result
+ 
+    # --------------------------------------------------------
+    # 3️⃣ Amount model
+    # --------------------------------------------------------
+    amount_input = {
+        "age": int(data.get("age", 0)),
+        "weight": int(data.get("weight", 0)),
+        "policy_tenure_years": float(data.get("policy_tenure_years", 0)),
+        "prior_claims_count": int(data.get("prior_claims_count", 0)),
+        "bmi": float(data.get("bmi", 0)),
+        "bloodpressure": int(data.get("bloodpressure", 0)),
+        "health_risk_score": int(data.get("health_risk_score", 0)),
+        "sum_assured": sum_assured,
+        "premium_amount": premium_amount,
+    }
+ 
+    amount_df = pd.DataFrame([amount_input])
+    amount_df = align_df(amount_df, amount_model)
+ 
+    raw_amount = float(amount_model.predict(amount_df)[0])
+ 
+    # clamp payout
+    amount = max(0, raw_amount)
+    amount = min(amount, sum_assured)
+ 
+    return {
+        "policy_id": policy_id,
+        "approved": "Yes",
+        "approval_probability": round(approval_prob, 4),
+        "claimable_amount": round(amount, 2)
+    }
+
+from fastapi import APIRouter, HTTPException, Body, status, Header # ✅ Added Header
+from fastapi.encoders import jsonable_encoder
+from typing import List, Optional
+from database import policies 
+
+router = APIRouter()
+
+# Helper to convert MongoDB ObjectId to string safely
+def policy_helper(policy) -> dict:
+    if not policy:
+        return {}
+    return {
+        "id": str(policy["_id"]),
+        "plan_name": policy.get("plan_name", "N/A"),
+        "premium_amount": policy.get("premium_amount", 0),
+        "tenure": policy.get("tenure", 0),
+        "description": policy.get("description", ""),
+        "benefits": policy.get("benefits", ""),
+        "category": policy.get("category", "health") # ✅ Added for your Dynamic Form idea
+    }
+
+# --- ADMIN: Create a New Policy ---
+@router.post("/admin/add-policy", status_code=status.HTTP_201_CREATED)
+async def create_policy(policy_data: dict = Body(...), role: Optional[str] = Header(None)):
+    # ✅ SECURITY CHECK: Ensure the request came from an Admin
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Unauthorized: Admin role required")
+
+    try:
+        new_policy = policies.insert_one(policy_data)
+        created = policies.find_one({"_id": new_policy.inserted_id})
+        return policy_helper(created)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create policy: {str(e)}")
+
+# --- CUSTOMER: Get All Policies ---
+@router.get("/customer/available-policies", response_model=List[dict])
+async def get_all_policies():
+    """
+    Fetches the catalog for the CustApplyPolicy page. 
+    Usually, customers don't need a role check to SEE available plans.
+    """
+    try:
+        raw_policies = list(policies.find())
+        return [policy_helper(p) for p in raw_policies]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Could not fetch policies")
+
+# --- ADMIN: Get All Policies (for Management) ---
+@router.get("/admin/available-policies", response_model=List[dict])
+async def admin_get_policies(role: Optional[str] = Header(None)):
+    # ✅ SECURITY CHECK
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access denied")
+
+    try:
+        raw_policies = list(policies.find())
+        return [policy_helper(p) for p in raw_policies]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# routers/predict.py
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
+from typing import Optional, Literal, Dict, Any
+from datetime import datetime
+from pathlib import Path
+import os
+import sys
+import logging
+import pandas as pd
+import numpy as np
+import joblib, json
+
+from pymongo.collection import Collection
+from pymongo import MongoClient, ASCENDING
+from bson.objectid import ObjectId
+
+# --- Make project root (BACKEND/) importable for features.py / reason_codes.py ---
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from features import engineer_features, apply_te_from_state
+from utils.reason_codes import reason_sentences
+
+# -------------------- LOGGER --------------------
+logger = logging.getLogger("predict")
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+
+router = APIRouter(tags=["Prediction"])
+
+# -------------------- ARTIFACT PATHS --------------------
+HERE = Path(__file__).resolve().parent
+ARTIFACTS_DIR = (HERE.parent / "artifacts")
+MODEL_PATH = ARTIFACTS_DIR / "model.joblib"
+THRESHOLD_PATH = ARTIFACTS_DIR / "threshold.json"
+
+logger.info("[STARTUP] Loading model artifacts from %s", ARTIFACTS_DIR)
+
+BUNDLE = None
+THRESHOLD = {"threshold": 0.5}
+TE_STATE = None
+
+try:
+    BUNDLE = joblib.load(MODEL_PATH)
+    THRESHOLD = json.load(open(THRESHOLD_PATH, "r", encoding="utf-8"))
+    TE_STATE = BUNDLE.get("te_state", BUNDLE.get("target_encoder_state"))
+    logger.info("[STARTUP] Artifacts loaded. Features: %s", BUNDLE.get("features"))
+except Exception as e:
+    logger.exception("⚠️ Prediction artifacts failed to load: %r", e)
+
+# -------------------- MONGO CONNECTION --------------------
+MONGO_URI = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+DB_NAME = os.getenv("DB_NAME", "Insurancedb")
+
+client = MongoClient(MONGO_URI)
+db = client[DB_NAME]
+
+# Collections
+dealers: Collection = db["Dealer_Data"]
+insurance_col: Collection = db["Insurance"] # ✅ Ensure this matches your collection name
+fraud_logs: Collection = db["Fraud_Logs"]
+fraud_logs.create_index([("Policy_id", ASCENDING)], name="ix_policy_id")
+
+# -------------------- HELPERS --------------------
+def now_utc_iso() -> str:
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+# -------------------- SCHEMAS --------------------
+class PredictIn(BaseModel):
+    Policy_id: Optional[str] = Field(default=None, description="Policy identifier")
+    customer_id: Optional[str] = Field(default=None, description="The 6-digit Customer ID") # ✅ ADDED
+
+    policy_start_date: str
+    incident_date: str
+    report_date: str
+
+    annual_premium: float
+    deductible: float
+    claim_amount: float
+
+    payment_method: Literal["Cash", "Crypto", "Bank"]
+    channel: Literal["Agent", "Online"]
+    police_reported: Literal["Yes", "No"]
+    injury_severity: Literal["None", "Normal", "Critical", "Major"]
+
+    num_prior_claims: int
+
+class PredictOut(BaseModel):
+    fraud_prediction: int
+    fraud_probability: float
+    Policy_id: str
+    reason_sentences: str
+
+# -------------------- PREDICTION --------------------
+@router.post("/predict", response_model=PredictOut)
+def predict(data: PredictIn, request: Request) -> Dict[str, Any]:
+    if BUNDLE is None or "model" not in BUNDLE:
+        raise HTTPException(status_code=500, detail="Model artifacts not loaded")
+
+    cid = request.headers.get("x-request-id", str(ObjectId()))
+    logger.info("[PREDICT][%s] Processing Request", cid)
+
+    try:
+        # ---- 1. NORMALIZE PAYLOAD ----
+        raw = data.model_dump()
+        policy_id = raw.get("Policy_id") or "UNKNOWN"
+        customer_id = raw.get("customer_id")
+
+        # ✅ CRITICAL FIX: BACKUP LOOKUP
+        # If the frontend didn't send customer_id, we find it in the Insurance DB via Policy_id
+        if not customer_id and policy_id != "UNKNOWN":
+            user_record = insurance_col.find_one({"policy_id": policy_id})
+            if user_record:
+                customer_id = user_record.get("customer_id")
+
+        # ---- 2. BUILD DATAFRAME & ENGINEER FEATURES ----
+        df = pd.DataFrame([raw])
+        df_eng = engineer_features(df)
+        df_te = apply_te_from_state(df_eng, TE_STATE)
+
+        required_feats = BUNDLE["features"]
+        for col in required_feats:
+            if col not in df_te.columns:
+                df_te[col] = np.nan
+
+        # ---- 3. PREDICT ----
+        X_imp = BUNDLE["imputer"].transform(df_te[required_feats])
+        proba = float(BUNDLE["model"].predict_proba(X_imp)[0][1])
+        threshold = float(THRESHOLD.get("threshold", 0.5))
+        pred = int(proba >= threshold)
+
+        # ---- 4. REASONS ----
+        reasons_text = reason_sentences(df_eng.iloc[0])
+
+        logger.info("[PREDICT][%s] Result: pred=%s | proba=%.4f | policy=%s", cid, pred, proba, policy_id)
+
+        # ---- 5. LOG TO MONGODB (INCLUDING CUSTOMER_ID) ----
+        if pred == 1:
+            fraud_logs.update_one(
+                {"Policy_id": policy_id},
+                {
+                    "$set": {
+                        "Policy_id": policy_id,
+                        "customer_id": str(customer_id) if customer_id else "UNKNOWN", # ✅ FIXED: Saved here!
+                        "probability": proba,
+                        "reasons": reasons_text,
+                        "timestamp": now_utc_iso(),
+                        "class": 1, # Used by Admin filter
+                        "status": "Pending",
+                        "admin_reason": "" 
+                    }
+                },
+                upsert=True,
+            )
+            logger.info("[FRAUD_DETECTED] Logged for Customer: %s", customer_id)
+
+        return {
+            "fraud_prediction": pred,
+            "fraud_probability": proba,
+            "Policy_id": policy_id,
+            "reason_sentences": reasons_text,
+        }
+
+    except Exception as e:
+        logger.exception("[PREDICT][%s] Error: %r", cid, e)
+        raise HTTPException(status_code=400, detail="Prediction logic failed")
+from fastapi import APIRouter, HTTPException, Header
+from datetime import datetime
+from bson import ObjectId
+from pydantic import BaseModel, Field
+from typing import Optional
+import traceback
+
+from database import queries, notifications, users, audit_logs
+
+# =====================================================
+# ROUTER (SINGLE — DO NOT DUPLICATE)
+# =====================================================
+router = APIRouter(tags=["Support System"])
+
+print("✅ DEBUG: Support System router loaded")
+
+# =====================================================
+# HELPERS
+# =====================================================
+def now() -> str:
+    return datetime.utcnow().isoformat()
+
+def verify_admin(role: Optional[str]):
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+def log_admin_action(admin_email: str, action: str, details: str):
+    audit_logs.insert_one({
+        "admin":admin_email,
+        "action":action,
+        "details":details,
+        "timestamp":datetime.utcnow(),
+    })
+# =====================================================
+# MODELS
+# =====================================================
+class QueryRequest(BaseModel):
+    customer_id: str = Field(..., min_length=1)
+    subject: str = Field(..., min_length=1)
+    query: str = Field(..., min_length=1)
+
+class ReplyRequest(BaseModel):
+    reply: str = Field(..., min_length=1)
+
+# =====================================================
+# RESOLVER: GET EMAIL BY CUSTOMER ID
+# =====================================================
+@router.get("/customer/resolve-email/{customer_id}")
+def resolve_email(customer_id: str):
+    cid = (customer_id or "").strip()
+    if not cid:
+        raise HTTPException(status_code=400, detail="customer_id required")
+
+    user = users.find_one({"customer_id": cid})
+    if not user or not user.get("email"):
+        raise HTTPException(status_code=404, detail="email not found")
+
+    return {"email": user["email"].strip().lower()}
+
+# =====================================================
+# 1️⃣ CUSTOMER: SUBMIT QUERY
+# =====================================================
+@router.post("/query")
+def ask_query(data: QueryRequest):
+    try:
+        cid = data.customer_id.strip()
+
+        # --- USER LOOKUP (OPTIONAL) ---
+        user_profile = users.find_one({
+            "$or": [
+                {"customer_id": cid},
+                {"customer_id": int(cid)} if cid.isdigit() else {}
+            ]
+        })
+
+        if user_profile:
+            user_name = (user_profile.get("full_name") or "").strip() or "Unknown User"
+            email = (user_profile.get("email") or "").strip().lower()
+        else:
+            user_name = "Guest User"
+            email = "unknown@support.local"
+
+        query_doc = {
+            "customer_id": cid,
+            "user_name": user_name,
+            "email": email,
+            "subject": data.subject,
+            "query": data.query,
+            "status": "Pending",
+            "reply": None,
+            "timestamp": datetime.utcnow(),
+            "resolved_at": None,
+        }
+
+        result = queries.insert_one(query_doc)
+
+        # --- ADMIN NOTIFICATION (BEST EFFORT) ---
+        try:
+            notifications.insert_one({
+                "recipient_id": "ADMIN",
+                "message": f"New Support Ticket: {data.subject} from {user_name}",
+                "type": "new_query",
+                "link": "/admin/customer-queries",
+                "timestamp": datetime.utcnow(),
+                "read": False
+            })
+        except Exception:
+            pass  # notification failure should not block query creation
+
+        return {
+            "message": "Query submitted successfully",
+            "id": str(result.inserted_id)
+        }
+
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+# =====================================================
+# 2️⃣ CUSTOMER: VIEW QUERY HISTORY
+# =====================================================
+@router.get("/customer/queries/{email}")
+def get_customer_history(email: str):
+    try:
+        email_norm = email.strip().lower()
+        print(f"🔍 DEBUG: Fetching queries for {email_norm}")
+
+        results = list(queries.find({"email": email_norm}).sort("timestamp", -1))
+
+        for r in results:
+            r["_id"] = str(r["_id"])
+
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =====================================================
+# 3️⃣ ADMIN: VIEW PENDING QUERIES
+# =====================================================
+@router.get("/admin/queries")
+def get_all_queries(role: Optional[str] = Header(None)):
+    verify_admin(role)
+
+    try:
+        results = list(queries.find({"status": "Pending"}).sort("timestamp", 1))
+        for r in results:
+            r["_id"] = str(r["_id"])
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =====================================================
+# 4️⃣ ADMIN: REPLY TO QUERY
+# =====================================================
+@router.post("/admin/reply/{query_id}")
+
+def reply_to_query(
+
+    query_id: str,
+
+    data: ReplyRequest,
+
+    role: Optional[str] = Header(None)
+
+):
+
+    verify_admin(role)
+
+    try:
+
+        if not ObjectId.is_valid(query_id):
+
+            raise HTTPException(status_code=400, detail="Invalid query_id format")
+
+        oid = ObjectId(query_id)
+
+        # 1. Fetch the query FIRST so we have the data for logs/notifications
+
+        original_query = queries.find_one({"_id": oid})
+
+        if not original_query:
+
+            raise HTTPException(status_code=404, detail="Query record not found")
+
+        # 2. Update the status
+
+        queries.update_one(
+
+            {"_id": oid},
+
+            {
+
+                "$set": {
+
+                    "status": "Resolved",
+
+                    "reply": data.reply,
+
+                    "resolved_at": datetime.utcnow(), # Better to store as date object
+
+                }
+
+            }
+
+        )
+
+        # 3. Notify the Customer
+
+        notifications.insert_one({
+
+            "recipient_id": str(original_query.get("customer_id")),
+
+            "message": f"Administrator replied to your query: {original_query.get('subject')}",
+
+            "link": "/customer/support-history",
+
+            "type": "query_reply",
+
+            "timestamp": datetime.utcnow(),
+
+            "read": False
+
+        })
+
+        # 4. Log the Admin Action (The Fix)
+
+        # Ensure 'log_admin_action' is defined at the top of this file or imported correctly
+
+        log_admin_action(
+
+            "admin1@gmail.com", 
+
+            "QUERY_RESOLVED", 
+
+            f"Resolved query for customer {original_query.get('customer_id')}"
+
+        )
+
+        return {"message": "Reply sent and query resolved"}
+
+    except HTTPException as he:
+
+        raise he
+
+    except Exception as e:
+
+        # This will print the EXACT error in your terminal so you can see why it's failing
+
+        print(f"DEBUG ERROR: {str(e)}")
+
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from bson import ObjectId
+from database import notifications  # Ensure this is your PyMongo collection
+from routes import auth, admin, customer, predict, policy, payout,query,dashboard,dealer,custdashboard
+from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["role", "Content-Type", "Authorization"],
+    expose_headers=["role"]
+)
+
+# Include Routers
+app.include_router(auth.router)
+app.include_router(admin.router)
+app.include_router(customer.router)
+app.include_router(predict.router)
+app.include_router(policy.router)
+app.include_router(payout.router)
+app.include_router(query.router)
+app.include_router(dashboard.router)
+app.include_router(dealer.router)
+app.include_router(custdashboard.router)
+
+class NotificationModel(BaseModel):
+    recipient_id: str 
+    message: str
+    link: str
+    status: str
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+# --- GLOBAL NOTIFICATION ROUTES ---
+
+@app.post("/notifications/add")
+def add_notification(notif: NotificationModel): # ✅ FIXED: Matches class name
+    try:
+        new_notif = {
+            "recipient_id": notif.recipient_id,
+            "message": notif.message,
+            "link": notif.link,
+            "status": notif.status,
+            "read": False, 
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        # ✅ FIXED: Using 'notifications' collection directly
+        notifications.insert_one(new_notif)
+        return {"message": "Notification Sent"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database failure: {str(e)}")
+
+@app.delete("/{role}/notifications/erase/{notif_id}")
+def erase_notification(role: str, notif_id: str):
+    try:
+        if not ObjectId.is_valid(notif_id):
+            raise HTTPException(status_code=400, detail="Invalid ID format")
+        result = notifications.delete_one({"_id": ObjectId(notif_id)})
+        return {"message": "Notification erased"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/{role}/notifications/clear-all")
+def clear_all_notifications(role: str, recipient_id: str):
+    try:
+        result = notifications.delete_many({"recipient_id": recipient_id})
+        return {"message": "Inbox cleared", "count": result.deleted_count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to clear inbox")
+
+@app.get("/notifications/get/{recipient_id}")
+def get_notifications(recipient_id: str):
+    try:
+        notifs=list(
+            notifications.find({"recipient_id":recipient_id}).sort("timestamp",-1)
+        )
+        for n in notifs:
+            n["_id"]=str(n["_id"])
+        return notifs
+    except Exception as e:
+        raise HTTPException(status_code=500,detail=str(e))
+
+@app.post("/notifications/mark-read/{notif_id}")
+def mark_as_read(notif_id:str):
+    notifications.update_one({"_id":ObjectId(notif_id)},{"$set":{"read":True}})
+    return {"status":"success"}
  
