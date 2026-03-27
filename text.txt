@@ -1,335 +1,76 @@
-from fastapi import HTTPException
-from database import (
-    policy_requests,
-    issued_policies,
-    notifications,
-    claim_policies,
-    fraud_logs,
-)
-from datetime import datetime
-from uuid import uuid4
+from fastapi import APIRouter, HTTPException, Header
 
-# ---------------- UTIL ----------------
+from services.admin_service import AdminService
 
-def now():
-    return datetime.utcnow().isoformat()
+from pydantic import BaseModel
 
+from typing import Optional
 
-# ---------------- SUBMIT APPLICATION ----------------
+router = APIRouter(tags=["Admin Operations"])
 
-def submit_application_service(data: dict):
-    if not data.get("customer_id") or not data.get("full_name"):
-        raise HTTPException(
-            status_code=400,
-            detail="Session Error: Missing Customer Identity."
-        )
+def check_auth(role: str):
 
-    data["request_id"] = f"REQ-{str(uuid4())[:6].upper()}"
-    data["status"] = "Pending"
-    data["submitted_at"] = now()
-    data["customer_id"] = str(data["customer_id"])
+    if not AdminService.verify_admin_role(role):
 
-    policy_requests.insert_one(data)
+        raise HTTPException(status_code=403, detail="Unauthorized: Admin access required.")
 
-    notifications.insert_one({
-        "recipient_id": "ADMIN",
-        "message": f"New Policy Request from {data.get('full_name')} (ID: {data.get('customer_id')})",
-        "link": "/admin/policy-requests",
-        "read": False,
-        "timestamp": now()
-    })
+@router.get("/admin/policy-requests")
 
-    return {
-        "message": "Application submitted successfully",
-        "request_id": data["request_id"]
-    }
+def get_requests(role: str = Header(None)):
 
+    check_auth(role)
 
-# ---------------- FULL HISTORY ----------------
+    try:
 
-def get_full_history_service(customer_id: str):
-    query = {"customer_id": customer_id}
-    pending = list(policy_requests.find(query))
-    issued = list(issued_policies.find(query))
+        return AdminService.get_all_pending_requests()
 
-    combined = []
+    except Exception as e:
 
-    for item in pending:
-        ts = item.get("submitted_at")
-        if ts:
-            combined.append({
-                "_id": str(item["_id"]),
-                "policy_id": item.get("policy_id"),
-                "plan_name": item.get("plan_name"),
-                "status": "Pending",
-                "timestamp": ts
-            })
+        raise HTTPException(500, f"Error: {str(e)}")
 
-    for item in issued:
-        ts = item.get("approved_at")
-        if ts:
-            combined.append({
-                "_id": str(item["_id"]),
-                "policy_id": item.get("policy_id"),
-                "plan_name": item.get("plan_name"),
-                "status": item.get("status", "Active"),
-                "timestamp": ts
-            })
+@router.post("/admin/policy-approve/{request_id}")
 
-    combined.sort(key=lambda x: x["timestamp"], reverse=True)
-    return combined
+def approve(request_id: str, role: str = Header(None)):
 
+    check_auth(role)
 
-# ---------------- CUSTOMER NOTIFICATIONS ----------------
+    policy_id, error = AdminService.approve_policy_request(request_id)
 
-def get_customer_notifications_service(recipient_id: str):
-    results = list(
-        notifications.find({"recipient_id": str(recipient_id)})
-        .sort("timestamp", -1)
-    )
-    for r in results:
-        r["_id"] = str(r["_id"])
-    return results
+    if error:
 
+        status_code = 404 if "not found" in error.lower() else 500
 
-# ---------------- ISSUED POLICIES ----------------
-
-def get_issued_policies_service(customer_id: str, role: str):
-    if role != "customer":
-        raise HTTPException(status_code=403, detail="Unauthorized")
-
-    results = list(issued_policies.find({"customer_id": customer_id}))
-    for r in results:
-        r["_id"] = str(r["_id"])
-    return results
-
-
-# ---------------- CLAIM HISTORY ----------------
-
-def get_claim_history_service(customer_id: str):
-    results = list(
-        fraud_logs.find({"customer_id": customer_id})
-        .sort("updated_at", -1)
-    )
-    for r in results:
-        r["_id"] = str(r["_id"])
-    return results
-
-
-# ---------------- POLICY DETAILS ----------------
-
-def get_policy_details_service(policy_id: str):
-    policy = issued_policies.find_one({"policy_id": policy_id})
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+        raise HTTPException(status_code=status_code, detail=error)
 
     return {
-        "policy_id": policy["policy_id"],
-        "plan_name": policy["plan_name"],
-        "premium": policy["premium_amount"],
-        "sum_assured": policy["total_claim_amount"],
-        "tenure": policy["tenure"],
-        "plan_type": policy["plan_type"],
-        "description": policy["description"],
-        "benefits": policy["benefits"],
+
+        "message": "Approved",
+
+        "policy_id": policy_id
+
     }
 
+@router.get("/admin/dashboard")
 
-# ---------------- CLAIM PREDICTION ----------------
+def get_stats(role: str = Header(None)):
 
-def store_claim_prediction_service(data):
-    claim_policies.insert_one({
-        "policy_id": data.policy_id,
-        "claimable_amount": data.claimable_amount,
-        "status": "Active",
-        "predicted_at": now()
-    })
-    return {"message": "Claim prediction stored successfully"}
+    check_auth(role)
 
+    try:
 
-def get_claim_policies_service(customer_id: str):
-    return list(
-        claim_policies.find({}, {"_id": 0})
-    )
+        return AdminService.get_dashboard_stats()
 
+    except Exception as e:
 
-# ---------------- FALSE CLAIM ----------------
+        raise HTTPException(500, detail="Failed to fetch stats")
 
-def submit_false_claim_service(data):
-    fraud_logs.update_one(
-        {"policy_id": data.policy_id},
-        {"$set": {
-            "customer_id": str(data.customer_id),
-            "policy_id": data.policy_id,
-            "reason": data.reason,
-            "status": "Pending",
-            "timestamp": datetime.utcnow()
-        }},
-        upsert=True
-    )
+@router.get("/admin/audit-logs")
 
-    notifications.insert_one({
-        "recipient_id": "ADMIN",
-        "message": f"Review claim by customer {data.customer_id}",
-        "link": "/admin/logs",
-        "read": False,
-        "timestamp": now()
-    })
+def get_audit_logs(role: str = Header(None)):
 
+    from database import audit_logs # Local import to avoid circularity
 
+    check_auth(role)
 
-from bson import ObjectId
-
-import random
-
-from datetime import datetime
-
-from database import (
-
-    policy_requests, issued_policies, policies, 
-
-    notifications, audit_logs, users, fraud_logs
-
-)
-
-class AdminService:
-
-    @staticmethod
-
-    def log_admin_action(admin_email: str, action: str, details: str):
-
-        """Logic for centralized audit logging."""
-
-        audit_logs.insert_one({
-
-            "admin": admin_email,
-
-            "action": action,
-
-            "details": details,
-
-            "timestamp": datetime.utcnow(),
-
-        })
-
-    @staticmethod
-
-    def get_pending_policy_requests():
-
-        """Logic for fetching and formatting pending requests."""
-
-        results = list(policy_requests.find({"status": "Pending"}))
-
-        for r in results:
-
-            r["_id"] = str(r["_id"]) 
-
-        return results
-
-    @staticmethod
-
-    def process_policy_approval(request_id: str, admin_email: str = "admin1@gmail.com"):
-
-        """
-
-        The core logic for approving a policy:
-
-        1. Fetch request 2. Fetch master policy 3. Generate ID 4. Issue & Notify
-
-        """
-
-        req = policy_requests.find_one({"_id": ObjectId(request_id)})
-
-        if not req:
-
-            return None, "Application not found"
-
-        policy_master = policies.find_one({"plan_name": req.get("plan_name")})
-
-        if not policy_master:
-
-            return None, "Policy not found in master collection"
-
-        # ✅ Your logic: Generate ID based on first 3 letters of plan
-
-        plan_name = req.get("plan_name", "POL")
-
-        prefix = plan_name[:3].upper()
-
-        generated_id = f"PL-{prefix}-{random.randint(1000, 9999)}"
-
-        issued_data = {
-
-            "policy_id": generated_id,
-
-            "customer_id": req.get("customer_id"),
-
-            "plan_name": plan_name,
-
-            "email": req.get("email"),
-
-            "plan_type": policy_master.get("plan_type"),
-
-            "premium_amount": policy_master.get("premium_amount"),
-
-            "total_claim_amount": policy_master.get("total_claim_amount"),
-
-            "tenure": policy_master.get("tenure"),
-
-            "description": policy_master.get("description"),
-
-            "benefits": policy_master.get("benefits"),
-
-            "status": "Active",
-
-            "approved_at": datetime.utcnow()
-
-        }
-
-        issued_policies.insert_one(issued_data)
-
-        policy_requests.delete_one({"_id": ObjectId(request_id)})
-
-        # ✅ Your logic: Trigger customer notification
-
-        notifications.insert_one({
-
-            "recipient_id": str(req.get("customer_id")),
-
-            "message": f"Policy '{plan_name}' has been Issued Successfully.",
-
-            "link": "/customer/issued-policies",
-
-            "type": "policy_approved",
-
-            "timestamp": datetime.utcnow(),
-
-            "read": False
-
-        })
-
-        AdminService.log_admin_action(admin_email, "POLICY_ISSUED", f"Issued {plan_name} to {req.get('customer_id')}")
-
-        return generated_id, None
-
-    @staticmethod
-
-    def get_admin_dashboard_stats():
-
-        """Logic for dashboard aggregation."""
-
-        return {
-
-            "totalClaims": issued_policies.count_documents({}),
-
-            "fraudsDetected": fraud_logs.count_documents({}),
-
-            "totalCustomers": users.count_documents({"role": "customer"}),
-
-            "availablePolicies": policies.count_documents({})
-
-        }
-
-
-
-    return {"message": "False claim submitted successfully"}
+    return list(audit_logs.find({}, {"_id": 0}).sort("timestamp", -1))
+ 
