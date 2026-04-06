@@ -135,7 +135,7 @@ function CustIssuedPolicies() {
                           <div>
                             <p className="text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-widest">Coverage Info</p>
                             <p className="text-xs text-slate-400 leading-relaxed">
-                              Annual Premium: <strong>${policy.premium_amount || policy.premium}</strong>. <br/>
+                              Annual Premium: <strong>₹{policy.premium_amount || policy.premium}</strong>. <br/>
                               Approved on: {policy.approved_at ? new Date(policy.approved_at).toLocaleDateString() : 'N/A'}
                             </p>
                           </div>
@@ -145,7 +145,7 @@ function CustIssuedPolicies() {
                           onClick={() => handlePayment(policy.policy_id, policy.premium_amount || policy.premium)}
                           className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-blue-900/40 transition-all active:scale-95"
                         >
-                          <CreditCard size={18} /> Pay Premium (${policy.premium_amount || policy.premium})
+                          <CreditCard size={18} /> Pay Premium (₹{policy.premium_amount || policy.premium})
                         </button>
                       </div>
                     )}
