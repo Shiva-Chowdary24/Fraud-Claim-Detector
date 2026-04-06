@@ -77,7 +77,7 @@ function CustApplyPolicy() {
                       {p.description || "Comprehensive insurance coverage tailored to your needs."}
                     </p>
                     <div className="flex items-center justify-between pt-6 border-t border-slate-800/50 mt-auto">
-                      <span className="text-white font-black text-xl">${p.premium_amount}<span className="text-xs text-slate-500 font-normal">/yr</span></span>
+                      <span className="text-white font-black text-xl">₹{p.premium_amount}<span className="text-xs text-slate-500 font-normal">/yr</span></span>
                       <button 
                         onClick={() => setSelectedPolicy(p)}
                         className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-xl transition-all active:scale-95 flex items-center gap-2 font-bold text-xs shadow-lg"
@@ -111,7 +111,7 @@ function CustApplyPolicy() {
               </div>
               <div className="text-left">
                 <h2 className="text-xl font-bold text-white leading-tight">{selectedPolicy.plan_name}</h2>
-                <p className="text-emerald-400 font-bold text-sm">${selectedPolicy.premium_amount} / Year</p>
+                <p className="text-emerald-400 font-bold text-sm">₹{selectedPolicy.premium_amount} / Year</p>
               </div>
             </div>
             
