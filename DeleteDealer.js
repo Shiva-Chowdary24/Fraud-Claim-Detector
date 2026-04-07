@@ -1,25 +1,38 @@
 import { useState } from "react";
-import API from "../api";
+import API from "../services/api";
 import AdminLayout from "../components/AdminLayout";
 import { toast } from "react-toastify";
 import { Trash2, Search } from "lucide-react";
 
 function DeleteDealer() {
   const [policy, setPolicy] = useState("");
+  const [deleted, setDeleted] = useState(false);
 
   const deleteDealer = async () => {
-    if (!policy) {
+    if (!policy && !deleted) {
       toast.error("Please enter a Policy ID");
       return;
     }
-    if(!window.confirm("Are you sure? This action is permanent.")) return;
+
+    // ✅ If already deleted, just show success again
+    if (deleted) {
+      toast.success("Successfully deleted");
+      return;
+    }
+
+    if (!window.confirm("Are you sure? This action is permanent.")) return;
 
     try {
       const res = await API.delete(`/admin/dealer/delete/${policy}`);
-      toast.success(res.data.message || "Dealer deleted successfully");
-      setPolicy("");
+      toast.success("Successfully deleted");   // ✅ exact message
+      setDeleted(true);                        // ✅ block further API calls
+      setPolicy("");                           // optional
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Error deleting dealer");
+      if (error.response?.status === 404) {
+        toast.warn("Dealer not found");
+      } else {
+        toast.error("Error deleting dealer");
+      }
     }
   };
 
@@ -38,7 +51,10 @@ function DeleteDealer() {
             placeholder="Enter Policy ID to Remove"
             className="w-full bg-transparent border-b border-gray-700 py-2 pl-10 outline-none focus:border-red-500 transition-all text-white placeholder-gray-600 font-mono"
             value={policy}
-            onChange={(e) => setPolicy(e.target.value)}
+            onChange={(e) => {
+              setPolicy(e.target.value);
+              setDeleted(false); // ✅ reset when new ID typed
+            }}
           />
         </div>
 
