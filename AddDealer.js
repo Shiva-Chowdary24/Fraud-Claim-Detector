@@ -1,5 +1,5 @@
 import { useState } from "react";
-import API from "../api"; 
+import API from "../services/api";
 import AdminLayout from "../components/AdminLayout";
 import { toast } from "react-toastify";
 import { Hash, Activity, Users, Calendar, DollarSign, Plus } from "lucide-react";
