@@ -1,467 +1,152 @@
-// import { useState, useEffect } from "react";
-// import { useNavigate } from "react-router-dom";
-// import API from "../services/api";
-// import CustSidebar from "../components/CustSidebar";
-// import CustNavbar from "../components/CustNavbar";
-// import { ShieldCheck, CheckCircle2, X, ArrowRight, Info, Zap, AlertCircle } from "lucide-react";
-// import { toast } from "react-toastify";
-
-// function CustApplyPolicy() {
-//   const [policies, setPolicies] = useState([]);
-//   const [loading, setLoading] = useState(true);
-//   const [selectedPolicy, setSelectedPolicy] = useState(null);
-  
-//   const navigate = useNavigate();
-
-//   const fetchPolicies = async () => {
-//     try {
-//       setLoading(true);
-//       // ✅ Get the role from localStorage
-//       const userRole = localStorage.getItem("role");
-
-//       // ✅ Pass the role in the headers, just like your Postman test
-//       const res = await API.get("/customer/available-policies", {
-//         headers: {
-//           "role": userRole
-//         }
-//       });
-
-//       if (Array.isArray(res.data)) {
-//         setPolicies(res.data);
-//       }
-//     } catch (err) {
-//       console.error("Fetch Error:", err);
-//       toast.error("Failed to load policy catalog. Check security permissions.");
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   useEffect(() => {
-//     fetchPolicies();
-//   }, []);
-
-//   return (
-//     <div className="flex min-h-screen bg-[#0a1628] text-slate-200">
-//       <CustSidebar />
-//       <div className="flex-1 flex flex-col h-screen overflow-hidden">
-//         <CustNavbar />
-        
-//         <main className="flex-1 overflow-y-auto p-8">
-//           <div className="max-w-6xl mx-auto">
-//             <header className="mb-12 text-center md:text-left">
-//               <h1 className="text-4xl font-extrabold text-white tracking-tight">Available Policies</h1>
-//               <p className="text-slate-400 mt-2 text-sm">Explore our AI-verified insurance plans tailored for you.</p>
-//             </header>
-
-//             {loading ? (
-//               <div className="flex justify-center items-center h-64">
-//                 <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-500"></div>
-//               </div>
-//             ) : policies.length === 0 ? (
-//               // ✅ Added empty state UI
-//               <div className="flex flex-col items-center justify-center py-20 bg-[#111e32]/40 rounded-[3rem] border border-dashed border-slate-800">
-//                 <AlertCircle size={48} className="text-slate-600 mb-4" />
-//                 <h3 className="text-xl font-bold text-slate-400">No Plans Available</h3>
-//                 <p className="text-slate-500 text-sm">The insurance catalog is currently empty. Please check back later.</p>
-//               </div>
-//             ) : (
-//               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-//                 {policies.map((p) => (
-//                   <div key={p._id || p.id} className="bg-[#111e32]/60 backdrop-blur-md border border-slate-800 p-8 rounded-[2rem] shadow-2xl flex flex-col h-full hover:border-blue-500/50 transition-all group text-left">
-//                     <div className="bg-black w-14 h-14 flex items-center justify-center rounded-2xl border border-slate-700 mb-6">
-//                       <ShieldCheck className="text-blue-400" size={28} />
-//                     </div>
-//                     <h3 className="text-2xl font-bold text-white mb-2">{p.plan_name}</h3>
-//                     <p className="text-slate-400 text-sm mb-6 line-clamp-2 leading-relaxed">
-//                       {p.description || "Comprehensive insurance coverage tailored to your needs."}
-//                     </p>
-//                     <div className="flex items-center justify-between pt-6 border-t border-slate-800/50 mt-auto">
-//                       <span className="text-white font-black text-xl">₹{p.premium_amount}<span className="text-xs text-slate-500 font-normal">/yr</span></span>
-//                       <button 
-//                         onClick={() => setSelectedPolicy(p)}
-//                         className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-xl transition-all active:scale-95 flex items-center gap-2 font-bold text-xs shadow-lg"
-//                       >
-//                         Read More <ArrowRight size={14} />
-//                       </button>
-//                     </div>
-//                   </div>
-//                 ))}
-//               </div>
-//             )}
-//           </div>
-//         </main>
-//       </div>
-
-//       {/* --- MEDIUM DIALOG / MODAL BOX --- */}
-//       {selectedPolicy && (
-//         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-6">
-//           <div className="bg-[#0f172a] border border-slate-800 w-full max-w-lg rounded-[2rem] p-8 relative shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            
-//             <button 
-//               onClick={() => setSelectedPolicy(null)}
-//               className="absolute top-6 right-6 p-1.5 bg-slate-800/50 hover:bg-red-500/20 rounded-full text-slate-400 hover:text-red-500 transition-all"
-//             >
-//               <X size={20} />
-//             </button>
-
-//             <div className="flex items-center gap-4 mb-6">
-//               <div className="bg-black w-12 h-12 flex items-center justify-center rounded-xl border border-slate-700">
-//                 <ShieldCheck className="text-blue-400" size={24} />
-//               </div>
-//               <div className="text-left">
-//                 <h2 className="text-xl font-bold text-white leading-tight">{selectedPolicy.plan_name}</h2>
-//                 <p className="text-emerald-400 font-bold text-sm">₹{selectedPolicy.premium_amount} / Year</p>
-//               </div>
-//             </div>
-            
-//             <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2 text-left">
-//               <div>
-//                 <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-//                   <Info size={12} className="text-blue-500" /> About Plan
-//                 </h4>
-//                 <p className="text-slate-300 text-sm leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800/50">
-//                   {selectedPolicy.description}
-//                 </p>
-//               </div>
-
-//               <div>
-//                 <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-//                   <Zap size={12} className="text-yellow-500" /> Key Benefits
-//                 </h4>
-//                 <div className="grid grid-cols-1 gap-2">
-//                   {(selectedPolicy.benefits || "Accidental Coverage, Theft Protection, Rapid Claims").split(",").map((benefit, i) => (
-//                     <div key={i} className="flex items-center gap-3 text-xs text-slate-300 bg-white/5 p-3 rounded-lg border border-white/5">
-//                       <CheckCircle2 size={14} className="text-blue-500 shrink-0" /> 
-//                       <span>{benefit.trim()}</span>
-//                     </div>
-//                   ))}
-//                 </div>
-//               </div>
-//             </div>
-
-//             <button 
-//               onClick={() => navigate("/customer/apply-form", { state: { policy: selectedPolicy } })}
-//               className="w-full bg-blue-600 mt-8 py-4 rounded-xl text-white font-bold text-base hover:bg-blue-500 transition-all shadow-lg active:scale-[0.98]"
-//             >
-//               Apply Now
-//             </button>
-//           </div>
-//         </div>
-//       )}
-//     </div>
-//   );
-// }
-
-// export default CustApplyPolicy;
-import { useState, useEffect } from "react";
-
-import { useNavigate } from "react-router-dom";
-
-import API from "../services/api";
-
+import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import { Send, MessageSquare, Loader2 } from "lucide-react";
 import CustSidebar from "../components/CustSidebar";
-
 import CustNavbar from "../components/CustNavbar";
-
-import { ShieldCheck, CheckCircle2, X, ArrowRight, Info, Zap, AlertCircle, FileText, Check } from "lucide-react";
-
+import API from "../services/api";
 import { toast } from "react-toastify";
 
-function CustApplyPolicy() {
+function CustAskQuestion() {
+  const [loading, setLoading] = useState(false);
+  const [showInfo, setShowInfo] = useState(true);
+  const [formData, setFormData] = useState({ subject: "", query: "" });
 
-  const [policies, setPolicies] = useState([]);
+  const inputStyle =
+    "bg-[#0a0f1a] border border-slate-800 rounded-2xl p-4 w-full text-white outline-none focus:ring-2 focus:ring-blue-500/50 transition-all placeholder:text-slate-600 shadow-inner";
 
-  const [loading, setLoading] = useState(true);
-
-  const [selectedPolicy, setSelectedPolicy] = useState(null);
-
-  // New States for Dividend Flow
-
-  const [showTerms, setShowTerms] = useState(false);
-
-  const [agreed, setAgreed] = useState(false);
-
-  const navigate = useNavigate();
-
-  const fetchPolicies = async () => {
-
-    try {
-
-      setLoading(true);
-
-      const userRole = localStorage.getItem("role");
-
-      const res = await API.get("/customer/available-policies", {
-
-        headers: { "role": userRole }
-
-      });
-
-      if (Array.isArray(res.data)) {
-
-        setPolicies(res.data);
-
-      }
-
-    } catch (err) {
-
-      console.error("Fetch Error:", err);
-
-      toast.error("Failed to load policy catalog.");
-
-    } finally {
-
-      setLoading(false);
-
-    }
-
-  };
-
+  // ✅ Auto-hide floating info message after 5 seconds
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowInfo(false);
+    }, 5000);
 
-    fetchPolicies();
-
+    return () => clearTimeout(timer);
   }, []);
 
-  // Handle Close & Reset
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const payload = {
+        customer_id: localStorage.getItem("customer_id"),
+        ...formData,
+        user_name: localStorage.getItem("user_name") || "Guest User",
+        email: localStorage.getItem("user_email") || "N/A",
+      };
 
-  const closeModal = () => {
-
-    setSelectedPolicy(null);
-
-    setShowTerms(false);
-
-    setAgreed(false);
-
-  };
-
-  // Logic to determine if we show Terms or Go to Form
-
-  const handleApplyClick = () => {
-
-    if (selectedPolicy?.policy_mode === "DIVIDEND") {
-
-      setShowTerms(true);
-
-    } else {
-
-      navigate("/customer/apply-form", { state: { policy: selectedPolicy } });
-
+      await API.post("/query", payload);
+      toast.success("Query sent! Our team will reply shortly.");
+      setFormData({ subject: "", query: "" });
+    } catch (err) {
+      toast.error("Failed to send query.");
+    } finally {
+      setLoading(false);
     }
-
   };
 
   return (
-<div className="flex min-h-screen bg-[#0a1628] text-slate-200">
-<CustSidebar />
-<div className="flex-1 flex flex-col h-screen overflow-hidden">
-<CustNavbar />
-<main className="flex-1 overflow-y-auto p-8">
-<div className="max-w-6xl mx-auto">
-<header className="mb-12 text-center md:text-left">
-<h1 className="text-4xl font-extrabold text-white tracking-tight">Available Policies</h1>
-<p className="text-slate-400 mt-2 text-sm">Explore our AI-verified insurance plans tailored for you.</p>
-</header>
-
-            {loading ? (
-<div className="flex justify-center items-center h-64">
-<div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-500"></div>
-</div>
-
-            ) : policies.length === 0 ? (
-<div className="flex flex-col items-center justify-center py-20 bg-[#111e32]/40 rounded-[3rem] border border-dashed border-slate-800">
-<AlertCircle size={48} className="text-slate-600 mb-4" />
-<h3 className="text-xl font-bold text-slate-400">No Plans Available</h3>
-</div>
-
-            ) : (
-<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-
-                {policies.map((p) => (
-<div key={p._id || p.id} className="bg-[#111e32]/60 backdrop-blur-md border border-slate-800 p-8 rounded-[2rem] shadow-2xl flex flex-col h-full hover:border-blue-500/50 transition-all group text-left">
-<div className="flex justify-between items-start mb-6">
-<div className="bg-black w-14 h-14 flex items-center justify-center rounded-2xl border border-slate-700">
-<ShieldCheck className={p.policy_mode === "DIVIDEND" ? "text-emerald-400" : "text-blue-400"} size={28} />
-</div>
-
-                      {/* Conditional Green Badge for Dividend */}
-
-                      {p.policy_mode === "DIVIDEND" && (
-<span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-3 py-1 rounded-full border border-emerald-500/20 tracking-widest uppercase">
-
-                          Dividend Policy
-</span>
-
-                      )}
-</div>
-<h3 className="text-2xl font-bold text-white mb-2">{p.plan_name}</h3>
-<p className="text-slate-400 text-sm mb-6 line-clamp-2 leading-relaxed">
-
-                      {p.description || "Comprehensive insurance coverage tailored to your needs."}
-</p>
-<div className="flex items-center justify-between pt-6 border-t border-slate-800/50 mt-auto">
-<span className="text-white font-black text-xl">₹{p.premium_amount}<span className="text-xs text-slate-500 font-normal">/yr</span></span>
-<button 
-
-                        onClick={() => setSelectedPolicy(p)}
-
-                        className={`${p.policy_mode === "DIVIDEND" ? "bg-emerald-600 hover:bg-emerald-500" : "bg-blue-600 hover:bg-blue-500"} text-white px-5 py-2 rounded-xl transition-all active:scale-95 flex items-center gap-2 font-bold text-xs shadow-lg`}
->
-
-                        Read More <ArrowRight size={14} />
-</button>
-</div>
-</div>
-
-                ))}
-</div>
-
-            )}
-</div>
-</main>
-</div>
-
-      {/* --- MODAL OVERLAY --- */}
-
-      {selectedPolicy && (
-<div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex justify-center items-center p-6">
-<div className="bg-[#0f172a] border border-slate-800 w-full max-w-lg rounded-[2rem] p-8 relative shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-<button 
-
-              onClick={closeModal}
-
-              className="absolute top-6 right-6 p-1.5 bg-slate-800/50 hover:bg-red-500/20 rounded-full text-slate-400 hover:text-red-500 transition-all"
->
-<X size={20} />
-</button>
-
-            {!showTerms ? (
-
-              /* --- VIEW 1: READ MORE --- */
-<>
-<div className="flex items-center gap-4 mb-6">
-<div className="bg-black w-12 h-12 flex items-center justify-center rounded-xl border border-slate-700">
-<ShieldCheck className={selectedPolicy.policy_mode === "DIVIDEND" ? "text-emerald-400" : "text-blue-400"} size={24} />
-</div>
-<div className="text-left">
-<h2 className="text-xl font-bold text-white leading-tight">{selectedPolicy.plan_name}</h2>
-<p className={`${selectedPolicy.policy_mode === "DIVIDEND" ? "text-emerald-400" : "text-blue-400"} font-bold text-sm`}>
-
-                      ₹{selectedPolicy.premium_amount} / Year
-</p>
-</div>
-</div>
-<div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2 text-left">
-<div>
-<h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-<Info size={12} className="text-blue-500" /> About Plan
-</h4>
-<p className="text-slate-300 text-sm leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800/50">
-
-                      {selectedPolicy.description}
-</p>
-</div>
-<div>
-<h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-<Zap size={12} className="text-yellow-500" /> Key Benefits
-</h4>
-<div className="grid grid-cols-1 gap-2">
-
-                      {(selectedPolicy.benefits || "Accidental Coverage, Theft Protection, Rapid Claims").split(",").map((benefit, i) => (
-<div key={i} className="flex items-center gap-3 text-xs text-slate-300 bg-white/5 p-3 rounded-lg border border-white/5">
-<CheckCircle2 size={14} className="text-blue-500 shrink-0" /> 
-<span>{benefit.trim()}</span>
-</div>
-
-                      ))}
-</div>
-</div>
-</div>
-<button 
-
-                  onClick={handleApplyClick}
-
-                  className={`w-full ${selectedPolicy.policy_mode === "DIVIDEND" ? "bg-emerald-600 hover:bg-emerald-500" : "bg-blue-600 hover:bg-blue-500"} mt-8 py-4 rounded-xl text-white font-bold text-base transition-all shadow-lg active:scale-[0.98]`}
->
-
-                  Proceed to Apply
-</button>
-</>
-
-            ) : (
-
-              /* --- VIEW 2: DIVIDEND TERMS & CONDITIONS --- */
-<div className="text-left animate-in slide-in-from-right-4 duration-300">
-<div className="flex items-center gap-3 mb-6">
-<div className="bg-emerald-500/10 p-2 rounded-lg">
-<FileText className="text-emerald-400" size={24} />
-</div>
-<h2 className="text-xl font-bold text-white">Dividend Policy Terms</h2>
-</div>
-<div className="bg-slate-900/80 rounded-2xl p-5 border border-slate-800 text-sm text-slate-300 space-y-4 mb-8 h-64 overflow-y-auto custom-scrollbar">
-<p className="font-bold text-emerald-400">Important Notice:</p>
-<p>1. Returns on this policy include annual dividends based on company performance.</p>
-<p>2. The current dividend rate of {selectedPolicy.dividend_rate}% is subject to market fluctuation.</p>
-<p>3. Dividend reinvestment is {selectedPolicy.dividend_reinvestment ? "automatically enabled" : "not applicable"} for this plan.</p>
-<p>4. Policyholders must maintain premium payments for the full tenure to qualify for final surplus distribution.</p>
-<p>5. By ticking the box below, you acknowledge that dividends are not guaranteed and are distributed at the discretion of the board.</p>
-</div>
-<label className="flex items-center gap-3 cursor-pointer group mb-8">
-<div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-all ${agreed ? "bg-emerald-600 border-emerald-600" : "border-slate-600 group-hover:border-emerald-500"}`}>
-
-                      {agreed && <Check size={16} className="text-white" />}
-<input 
-
-                        type="checkbox" 
-
-                        className="hidden" 
-
-                        checked={agreed} 
-
-                        onChange={() => setAgreed(!agreed)} 
-
-                      />
-</div>
-<span className="text-sm text-slate-400 group-hover:text-slate-200 transition-colors">
-
-                      I have read and agree to the Dividend Terms & Conditions
-</span>
-</label>
-<div className="flex gap-3">
-<button 
-
-                    onClick={() => setShowTerms(false)}
-
-                    className="flex-1 bg-slate-800 py-4 rounded-xl text-white font-bold hover:bg-slate-700 transition-all"
->
-
-                    Back
-</button>
-<button 
-
-                    disabled={!agreed}
-
-                    onClick={() => navigate("/customer/apply-form", { state: { policy: selectedPolicy } })}
-
-                    className={`flex-[2] py-4 rounded-xl text-white font-bold transition-all ${agreed ? "bg-emerald-600 hover:bg-emerald-500 shadow-lg" : "bg-slate-700 cursor-not-allowed opacity-50"}`}
->
-
-                    Apply Now
-</button>
-</div>
-</div>
-
-            )}
-</div>
-</div>
-
+    <div className="flex min-h-screen bg-[#0a1628] text-slate-200 font-sans">
+      {/* ✅ Floating Info Message */}
+      {showInfo && (
+        <motion.div
+          initial={{ opacity: 0, y: -20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0 }}
+          className="
+            fixed top-6 right-6 z-50 max-w-sm
+            bg-gradient-to-br from-blue-600/90 to-indigo-700/90
+            text-white p-5 rounded-2xl shadow-2xl border border-white/10
+          "
+        >
+          <h4 className="font-bold text-sm uppercase tracking-widest text-blue-200 mb-1">
+            Need Help?
+          </h4>
+          <p className="text-sm leading-relaxed text-blue-50">
+            Clarify your doubts using our <b>Chatbot</b>.
+            <br />
+            If you couldn’t find any relevant answers, please contact the
+            <b> Administrator</b>.
+          </p>
+        </motion.div>
       )}
-</div>
 
+      <CustSidebar />
+
+      <div className="flex-1 flex flex-col">
+        <CustNavbar />
+
+        <main className="p-10 max-w-4xl">
+          <header className="mb-10">
+            <h1 className="text-4xl font-extrabold text-white tracking-tight uppercase flex items-center gap-3">
+              <MessageSquare className="text-blue-500" size={32} />
+              Help Desk
+            </h1>
+            <p className="text-slate-500 text-xs tracking-[0.2em] mt-2 uppercase">
+              Submit your technical or policy inquiries
+            </p>
+          </header>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-[#111e32]/50 backdrop-blur-xl border border-white/5 p-10 rounded-[2.5rem] shadow-2xl"
+          >
+            <form onSubmit={handleSubmit} className="space-y-6 text-left">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase ml-2">
+                  Subject
+                </label>
+                <input
+                  required
+                  value={formData.subject}
+                  onChange={(e) =>
+                    setFormData({ ...formData, subject: e.target.value })
+                  }
+                  placeholder="e.g. Payout Delay, Policy Update"
+                  className={inputStyle}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase ml-2">
+                  Detail Description
+                </label>
+                <textarea
+                  required
+                  rows="6"
+                  value={formData.query}
+                  onChange={(e) =>
+                    setFormData({ ...formData, query: e.target.value })
+                  }
+                  placeholder="Explain your concern in detail..."
+                  className={`${inputStyle} resize-none`}
+                />
+              </div>
+
+              <button
+                disabled={loading}
+                className="
+                  flex items-center gap-3
+                  bg-blue-600 hover:bg-blue-500
+                  text-white px-10 py-4 rounded-2xl
+                  font-black uppercase tracking-widest text-xs
+                  transition-all active:scale-95
+                  shadow-xl shadow-blue-900/30
+                "
+              >
+                {loading ? (
+                  <Loader2 className="animate-spin" size={18} />
+                ) : (
+                  <Send size={18} />
+                )}
+                Submit Inquiry
+              </button>
+            </form>
+          </motion.div>
+        </main>
+      </div>
+    </div>
   );
-
 }
 
-export default CustApplyPolicy;
- 
+export default CustAskQuestion;
