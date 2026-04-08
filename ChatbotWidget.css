@@ -1,0 +1,135 @@
+.chat-icon {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 70px;
+  height: 70px;
+  background: #0a58ca;
+  color: #fff;
+  font-size: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 9999;
+
+  /* Glow effect */
+  box-shadow: 0 0 20px rgba(10, 88, 202, 0.8);
+  animation: glow 1.5s infinite alternate;
+}
+
+@keyframes glow {
+  from {
+    box-shadow: 0 0 10px rgba(10, 88, 202, 0.6);
+  }
+  to {
+    box-shadow: 0 0 30px rgba(10, 88, 202, 1);
+  }
+}
+
+
+/* ===== CHAT BOX ===== */
+.chatbox {
+  position: fixed;
+  bottom: 105px;
+  right: 20px;
+  width: 360px;
+  height: 480px;
+
+  background: rgba(2, 6, 23, 0.95); /* ✅ same as page */
+  backdrop-filter: blur(12px);
+
+  border: 1px solid rgba(255,255,255,.05);
+  border-radius: 16px;
+
+  box-shadow:
+    0 20px 50px rgba(0,0,0,.8),
+    inset 0 0 0 1px rgba(255,255,255,.03);
+
+  color: #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  z-index: 9999;
+}
+
+/* ===== HEADER ===== */
+.chat-header {
+  padding: 14px 16px;
+  background: linear-gradient(90deg, #1d4ed8, #2563eb);
+  border-radius: 16px 16px 0 0;
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  font-weight: 700;
+  letter-spacing: .4px;
+}
+
+/* ===== BODY ===== */
+.chat-body {
+  flex: 1;
+  padding: 14px;
+  overflow-y: auto;
+}
+
+/* ===== MESSAGE BUBBLES ===== */
+.message {
+  max-width: 82%;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* User */
+.message.user {
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  align-self: flex-end;
+  color: white;
+}
+
+/* Bot */
+.message.bot {
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+  align-self: flex-start;
+}
+
+/* ===== FOOTER ===== */
+.chat-footer {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid rgba(255,255,255,.05);
+}
+
+.chat-footer textarea {
+  flex: 1;
+  resize: none;
+  height: 42px;
+
+  background: rgba(15, 23, 42, 0.8); /* ✅ page input style */
+  color: #e5e7eb;
+
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.08);
+  padding: 8px 10px;
+  outline: none;
+}
+
+.chat-footer textarea::placeholder {
+  color: #64748b;
+}
+
+.chat-footer button {
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  color: white;
+  border: none;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
