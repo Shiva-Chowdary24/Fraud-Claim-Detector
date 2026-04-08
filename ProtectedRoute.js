@@ -1,25 +1,19 @@
-import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
 const ProtectedRoute = ({ children, roleRequired }) => {
   const token = localStorage.getItem("token");
-  const userRole = localStorage.getItem("role"); // 'admin' or 'customer'
-  const location = useLocation();
-
-  // 1. If no token, they aren't logged in at all
+  const userRole = localStorage.getItem("role"); 
+  
+  // 1. If no token, redirect to login
   if (!token) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return <Navigate to="/login" replace/>;
   }
 
-  // 2. If they have a token but are trying to access a page above their "Pay Grade"
-  // Example: Customer tries to type /admin/dashboard
+  // 2. If role doesn't match, redirect to unauthorized or home
   if (roleRequired && userRole !== roleRequired) {
-    // Redirect them to their own dashboard instead of the login page
-    const fallbackPath = userRole === "admin" ? "/admin/dashboard" : "/customer/dashboard";
-    return <Navigate to={fallbackPath} replace />;
+    return <Navigate to="/" replace />;
   }
 
-  // 3. If everything matches, let them in
   return children;
 };
 
