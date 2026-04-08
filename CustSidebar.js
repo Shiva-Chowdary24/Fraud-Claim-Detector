@@ -53,17 +53,29 @@ function CustSidebar() {
 
         {/* New Claim Amount Link */}
         <Link
-          to="/customer/claim-amount"
+          to="/customer/predict"
           className="bg-[#1f2d3d] py-3 px-4 rounded-lg hover:bg-[#2b3f55]"
         >
           {open ? "Claim Amount" : "💰"}
+        </Link>
+        <Link
+          to="/customer/claim-policy"
+          className="bg-[#1f2d3d] py-3 px-4 rounded-lg hover:bg-[#2b3f55]"
+        >
+          {open ? "Claim Policies" : "💰"}
         </Link>
 
         <Link
           to="/customer/ask-question"
           className="bg-[#1f2d3d] py-3 px-4 rounded-lg hover:bg-[#2b3f55]"
         >
-          {open ? "Ask Question" : "❓"}
+          {open ? "Support" : "❓"}
+        </Link>
+        <Link
+          to="/customer/support-history"
+          className="bg-[#1f2d3d] py-3 px-4 rounded-lg hover:bg-[#2b3f55]"
+        >
+          {open ? "Support History" : "❓"}
         </Link>
       </div>
     </div>
