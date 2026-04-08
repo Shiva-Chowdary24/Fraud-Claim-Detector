@@ -5,6 +5,8 @@ import "react-toastify/dist/ReactToastify.css";
 import LandingPage from "./pages/LandingPage";
 import Login from "./pages/Login";
 import ProtectedRoute from "./components/ProtectedRoute";
+import "./ChatbotWidget.css";
+
 
 /* Admin Pages */
 import Dashboard from "./pages/Dashboard";
@@ -15,6 +17,8 @@ import PolicyRequests from "./pages/PolicyRequests";
 import CustomerQueries from "./pages/CustomerQueries";
 import AuditLogs from "./pages/AuditLogs";
 import IssuePolicies from "./pages/IssuePolicy";
+import DealerManager from "./pages/DealerManager";
+
 
 /* Customer Pages */
 import CustDashboard from "./pages/CustDashboard";
@@ -48,7 +52,7 @@ function App() {
         <Route path="/admin/Issue-policy" element={<ProtectedRoute roleRequired="admin"><IssuePolicies /></ProtectedRoute>} />
         <Route path="/admin/audit-logs" element={<ProtectedRoute roleRequired="admin"><AuditLogs /></ProtectedRoute>} />
         <Route path="/admin/logs" element={<ProtectedRoute roleRequired="admin"><Logs /></ProtectedRoute>} />
-
+        <Route path="/admin/manage" element={<ProtectedRoute roleRequired="admin"><DealerManager /></ProtectedRoute>} />
 
         {/* 🔐 Customer Routes - Only accessible if role === 'customer' */}
         <Route path="/customer/dashboard" element={<ProtectedRoute roleRequired="customer"><CustDashboard /></ProtectedRoute>} />
@@ -56,13 +60,14 @@ function App() {
         <Route path="/customer/policy-history" element={<ProtectedRoute roleRequired="customer"><CustPolicyHistory /></ProtectedRoute>} />
         <Route path="/customer/apply-form" element={<ProtectedRoute roleRequired="customer"><ApplyPolicyForm /></ProtectedRoute>} />
         <Route path="/customer/issued-policies" element={<ProtectedRoute roleRequired="customer"><CustIssuedPolicies /></ProtectedRoute>} />
-        <Route path="/customer/ask-question" element={<ProtectedRoute roleRequired="customer"><CustAskQuestion /></ProtectedRoute>} />
+        <Route path="/customer/support-history" element={<ProtectedRoute roleRequired="customer"><CustSupportHistory /></ProtectedRoute>} />
         <Route path="/customer/predict" element={<ProtectedRoute roleRequired="customer"><ClaimAmount /></ProtectedRoute>} />
         <Route path="/customer/predict-claim" element={<ProtectedRoute roleRequired="customer"><ClaimAmountPage /></ProtectedRoute>} />
         <Route path="/customer/amount-predict" element={<ProtectedRoute roleRequired="customer"><AmountPredict /></ProtectedRoute>} />
         <Route path="/customer/claim-policies" element={<ProtectedRoute roleRequired="customer"><ClaimPolicies /></ProtectedRoute>} />
-        <Route path="/customer/support-history" element={<ProtectedRoute roleRequired="customer"><CustSupportHistory /></ProtectedRoute>} />
+        <Route path="/customer/ask-question" element={<ProtectedRoute roleRequired="customer"><CustAskQuestion /></ProtectedRoute>} />
         <Route path="/customer/claim-policy" element={<ProtectedRoute roleRequired="customer"><ClaimPolicies/></ProtectedRoute>} />
+        
 
         {/* 404 Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -71,4 +76,4 @@ function App() {
   );
 }
 
-export default App
+ export default App
