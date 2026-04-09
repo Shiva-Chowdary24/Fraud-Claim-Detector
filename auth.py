@@ -86,4 +86,4 @@ def login(req: AuthRequest):
         "full_name": user.get("full_name"),
         "role": "admin",  # 👈 CRITICAL: React needs this to authorize the dashboard
         "token": "admin_session_token" # Optional: add if your frontend expects a token
-    }s
+   }
