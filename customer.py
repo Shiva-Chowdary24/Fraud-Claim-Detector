@@ -46,32 +46,7 @@ def submit_application(data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- 2. FULL HISTORY (Merged View for Customer History Page) ---
-# @router.get("/customer/full-history")
-# def get_full_history(customer_id: str = Query(...)):
-#     try:
-#         query = {"customer_id": str(customer_id)}
-        
-#         pending = list(policy_requests.find(query))
-#         active = list(issued_policies.find(query))
-        
-#         combined = []
-#         for item in pending:
-#             item["_id"] = str(item["_id"])
-#             combined.append(item)
-            
-#         for item in active:
-#             item["_id"] = str(item["_id"])
-#             item["status"] = "Active"
-#             combined.append(item)
 
-#         # Sort by most recent date
-#         combined.sort(key=lambda x: x.get("submitted_at") or x.get("issued_date") or "", reverse=True)
-#         return combined
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail="History fetch failed")
-from fastapi import Query, HTTPException
-from datetime import datetime
 
 @router.get("/customer/full-history")
 def get_full_history(customer_id: str = Query(...)):
@@ -155,38 +130,32 @@ def get_notifications(recipient_id: str = Query(...)):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail="Error fetching notifications")
-
-# --- 4. HELP & QUERIES ---
-# @router.post("/query")
-# def ask_query(data: dict):
-#    data["status"] = "Pending"
-#    data["timestamp"] = now()
-#    queries.insert_one(data)
-#    return {"message": "Query sent"}
-
-# --- 5. LEGACY ROUTES (Optional - for backward compatibility) ---
+def now():
+   return datetime.utcnow()
+# --- CUSTOMER: Get My Issued Policies ---
 @router.get("/customer/issued-policies")
 def get_issued(customer_id: str, role: str = Header(None)):
-    # 1. Security Check
-    if role != "customer":
-        raise HTTPException(status_code=403, detail="Unauthorized")
+   if role != "customer":
+       raise HTTPException(status_code=403, detail="Unauthorized")
+   try:
+       # Search by customer_id (handles string or int IDs)
+       query = {
+           "$or": [
+               {"customer_id": customer_id},
+               {"customer_id": int(customer_id) if customer_id.isdigit() else customer_id}
+           ]
+       }
+       results = list(issued_policies.find(query))
+       for r in results:
+           r["_id"] = str(r["_id"])
+           # Ensure dividend fields have defaults if they are missing
+           r["policy_mode"] = r.get("policy_mode", "NORMAL")
+           r["dividend_rate"] = r.get("dividend_rate", 0)
+           r["dividend_reinvestment"] = r.get("dividend_reinvestment", False)
+       return results
+   except Exception as e:
+       raise HTTPException(status_code=500, detail=f"Database fetch failed: {str(e)}")
 
-    try:
-        # 2. Search by customer_id (ensure this matches your DB field name)
-        query={
-            "$or":[
-                {"customer_id":customer_id},
-                {"customer_id":int(customer_id) if customer_id.isdigit() else customer_id}
-            ]
-        }
-        results = list(issued_policies.find(query))
-        
-        for r in results:
-            r["_id"] = str(r["_id"])
-            
-        return results
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Database fetch failed")
 @router.get("/customer/claim-history/{customer_id}")
 def get_claim_history(customer_id: str):
     try:
@@ -320,5 +289,4 @@ def submit_false_claim(data: FalseClaimRequest=Body(...)):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
