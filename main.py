@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from bson import ObjectId
 from database import notifications  # Ensure this is your PyMongo collection
-from routes import auth, admin, customer, predict, policy, payout,query,dashboard,dealer,custdashboard
+from routes import auth, admin, customer, predict, policy, payout,query,dashboard,dealer,custdashboard,chatbot
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
@@ -29,6 +29,7 @@ app.include_router(query.router)
 app.include_router(dashboard.router)
 app.include_router(dealer.router)
 app.include_router(custdashboard.router)
+app.include_router(chatbot.router)
 
 class NotificationModel(BaseModel):
     recipient_id: str 
