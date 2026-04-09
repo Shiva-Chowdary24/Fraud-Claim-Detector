@@ -5,20 +5,6 @@ from database import policies
 
 router = APIRouter()
 
-# Helper to convert MongoDB ObjectId to string safely
-def policy_helper(policy) -> dict:
-    if not policy:
-        return {}
-    return {
-        "id": str(policy["_id"]),
-        "plan_name": policy.get("plan_name", "N/A"),
-        "premium_amount": policy.get("premium_amount", 0),
-        "tenure": policy.get("tenure", 0),
-        "description": policy.get("description", ""),
-        "benefits": policy.get("benefits", ""),
-        "category": policy.get("category", "health") # ✅ Added for your Dynamic Form idea
-    }
-
 # --- ADMIN: Create a New Policy ---
 @router.post("/admin/add-policy", status_code=status.HTTP_201_CREATED)
 async def create_policy(policy_data: dict = Body(...), role: Optional[str] = Header(None)):
@@ -32,6 +18,25 @@ async def create_policy(policy_data: dict = Body(...), role: Optional[str] = Hea
         return policy_helper(created)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create policy: {str(e)}")
+# Helper to convert MongoDB ObjectId to string safely
+def policy_helper(policy) -> dict:
+   if not policy:
+       return {}
+   return {
+       "id": str(policy["_id"]),
+       "plan_name": policy.get("plan_name", "N/A"),
+       "plan_type": policy.get("plan_type", "Health"),
+       "premium_amount": policy.get("premium_amount", 0),
+       "total_claim_amount": policy.get("total_claim_amount", 0),
+       "tenure": policy.get("tenure", 0),
+       "description": policy.get("description", ""),
+       "benefits": policy.get("benefits", ""),
+       "category": policy.get("category", "health"),
+       # --- ADD THESE THREE FIELDS ---
+       "policy_mode": policy.get("policy_mode", "NORMAL"),
+       "dividend_rate": policy.get("dividend_rate", 0),
+       "dividend_reinvestment": policy.get("dividend_reinvestment", False)
+   }
 
 # --- CUSTOMER: Get All Policies ---
 @router.get("/customer/available-policies", response_model=List[dict])
